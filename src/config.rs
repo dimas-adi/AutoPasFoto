@@ -144,3 +144,11 @@ pub const UI_MIN_WIDTH: f32 = 760.0;
 pub const UI_MIN_HEIGHT: f32 = 600.0;
 /// Application title displayed in the window header.
 pub const APP_TITLE: &str = "Pas Foto Otomatis";
+
+// --- Parity comparison constants (PRD 3.3, G1.8) ---
+/// Maximum allowed eye Y position difference in percentage points (1.5%).
+pub const PARITY_MAX_EYE_Y_DIFF: f64 = 0.015;
+/// Maximum allowed center X position difference in percentage points (1.5%).
+pub const PARITY_MAX_CENTER_X_DIFF: f64 = 0.015;
+/// Maximum allowed relative scale difference (8%).
+pub const PARITY_MAX_SCALE_REL_DIFF: f64 = 0.08;

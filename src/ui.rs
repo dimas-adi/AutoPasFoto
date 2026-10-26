@@ -241,6 +241,12 @@ impl Default for App {
 impl App {
     /// Creates the application, restoring saved settings from `cc.storage` if available.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        // Cards are light, so widgets must use the light theme even if Windows is in dark mode.
+        cc.egui_ctx.set_theme(egui::Theme::Light);
+        cc.egui_ctx.set_fonts(load_fonts());
+        cc.egui_ctx
+            .style_mut_of(egui::Theme::Light, apply_light_style);
+
         let settings = cc
             .storage
             .and_then(|storage| eframe::get_value::<Settings>(storage, eframe::APP_KEY))
@@ -472,22 +478,14 @@ impl App {
     }
 
     fn render_folder_section(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Folder");
-        ui.add_space(4.0);
-
-        egui::Grid::new("folder_grid")
-            .num_columns(3)
-            .spacing([8.0, 8.0])
-            .show(ui, |ui| {
-                ui.label("Folder foto mentah:");
-                let raw_text = self
-                    .settings
-                    .raw_dir
-                    .as_ref()
-                    .map(|p| p.display().to_string())
-                    .unwrap_or_else(|| "Belum dipilih".to_string());
-                ui.label(raw_text);
-
+        card(ui, Some("Folder"), |ui| {
+            let raw_text = self
+                .settings
+                .raw_dir
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "Belum dipilih".to_string());
+            folder_row(ui, "Folder foto mentah:", &raw_text, |ui| {
                 if ui
                     .add_enabled(!self.is_running, egui::Button::new("Pilih…"))
                     .clicked()
@@ -496,131 +494,247 @@ impl App {
                     self.settings.raw_dir = Some(picked.clone());
                     self.start_preview_scan(picked);
                 }
-                ui.end_row();
-
-                ui.label("Folder hasil:");
-                ui.label(self.settings.output_dir.display().to_string());
-                ui.horizontal(|ui| {
-                    if ui
-                        .add_enabled(!self.is_running, egui::Button::new("Pilih…"))
-                        .clicked()
-                        && let Some(picked) = rfd::FileDialog::new().pick_folder()
-                    {
-                        self.settings.output_dir = picked;
-                        self.asset_error = check_assets();
-                    }
-                    if ui.button("Buka Folder").clicked() {
-                        self.open_output_folder();
-                    }
-                });
-                ui.end_row();
             });
 
-        ui.add_space(6.0);
-        match &self.preview {
-            PreviewState::None => {}
-            PreviewState::Loading(_) => {
-                ui.label("Membaca folder…");
-            }
-            PreviewState::Error(err) => {
-                render_error_box(ui, err);
-            }
-            PreviewState::Ready(preview) => {
-                ui.strong(format_preview_summary(
-                    preview.class_count,
-                    preview.total_photos,
-                ));
+            let output_text = self.settings.output_dir.display().to_string();
+            folder_row(ui, "Folder hasil:", &output_text, |ui| {
+                // Right-to-left layout: the first button added is the rightmost one.
+                if ui.button("Buka Folder").clicked() {
+                    self.open_output_folder();
+                }
+                if ui
+                    .add_enabled(!self.is_running, egui::Button::new("Pilih…"))
+                    .clicked()
+                    && let Some(picked) = rfd::FileDialog::new().pick_folder()
+                {
+                    self.settings.output_dir = picked;
+                    self.asset_error = check_assets();
+                }
+            });
 
-                egui::CollapsingHeader::new("Rencana pasangan per kelas")
-                    .default_open(false)
-                    .show(ui, |ui| {
-                        for cls in &preview.classes {
-                            ui.label(format_class_pairing_line(
-                                &cls.label,
-                                cls.photo_count,
-                                &cls.pairing_summary,
-                            ));
-                            for sk in &cls.skipped {
-                                ui.label(format!(
-                                    "  - [{}] {}: {}",
-                                    cls.label, sk.filename, sk.reason
-                                ));
-                            }
-                        }
-                    });
+            match &self.preview {
+                PreviewState::None => {}
+                PreviewState::Loading(_) => {
+                    ui.add_space(config::UI_SMALL_GAP);
+                    ui.label(
+                        egui::RichText::new("Membaca folder…")
+                            .color(rgb(config::UI_TEXT_SECONDARY_RGB)),
+                    );
+                }
+                PreviewState::Error(err) => {
+                    ui.add_space(config::UI_SMALL_GAP);
+                    render_error_box(ui, err);
+                }
+                PreviewState::Ready(preview) => {
+                    ui.add_space(config::UI_SMALL_GAP);
+                    ui.label(
+                        egui::RichText::new(format_preview_summary(
+                            preview.class_count,
+                            preview.total_photos,
+                        ))
+                        .font(semibold_font(config::UI_BODY_TEXT_SIZE))
+                        .color(rgb(config::UI_TEXT_PRIMARY_RGB)),
+                    );
+
+                    collapsing_panel(
+                        ui,
+                        "Rencana pasangan per kelas",
+                        config::UI_BOX_RADIUS,
+                        |ui| {
+                            egui::ScrollArea::vertical()
+                                .id_salt("preview_scroll")
+                                .max_height(config::UI_PREVIEW_LIST_MAX_HEIGHT)
+                                .auto_shrink([false, true])
+                                .show(ui, |ui| {
+                                    for cls in &preview.classes {
+                                        wrapped_label(
+                                            ui,
+                                            egui::RichText::new(format_class_pairing_line(
+                                                &cls.label,
+                                                cls.photo_count,
+                                                &cls.pairing_summary,
+                                            ))
+                                            .color(rgb(config::UI_TEXT_PRIMARY_RGB)),
+                                        );
+                                        for sk in &cls.skipped {
+                                            wrapped_label(
+                                                ui,
+                                                egui::RichText::new(format!(
+                                                    "  - [{}] {}: {}",
+                                                    cls.label, sk.filename, sk.reason
+                                                ))
+                                                .color(rgb(config::UI_TEXT_SECONDARY_RGB)),
+                                            );
+                                        }
+                                    }
+                                });
+                        },
+                    );
+                }
             }
-        }
+        });
     }
 
     fn render_settings_section(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Pengaturan");
-        ui.add_space(4.0);
-
-        ui.add_enabled_ui(!self.is_running, |ui| {
-            ui.horizontal(|ui| {
-                ui.checkbox(&mut self.settings.replace_bg, "Ganti warna latar");
-                ui.add_enabled_ui(self.settings.replace_bg, |ui| {
-                    ui.color_edit_button_srgb(&mut self.settings.bg_color);
+        card(ui, Some("Pengaturan"), |ui| {
+            ui.add_enabled_ui(!self.is_running, |ui| {
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.settings.replace_bg, "Ganti warna latar");
+                    ui.add_enabled_ui(self.settings.replace_bg, |ui| {
+                        ui.color_edit_button_srgb(&mut self.settings.bg_color);
+                    });
                 });
-            });
 
-            ui.add_space(4.0);
-            egui::CollapsingHeader::new("Pengaturan lanjutan")
-                .default_open(false)
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label("Posisi mata:");
-                        ui.add(
-                            egui::Slider::new(
-                                &mut self.settings.eye_line_pct,
-                                EYE_LINE_MIN_PCT..=EYE_LINE_MAX_PCT,
-                            )
-                            .suffix("%"),
-                        );
-                    });
+                collapsing_panel(ui, "Pengaturan lanjutan", config::UI_BOX_RADIUS, |ui| {
+                    ui.spacing_mut().slider_width = config::UI_SLIDER_WIDTH;
+                    egui::Grid::new("advanced_grid")
+                        .num_columns(2)
+                        .min_col_width(config::UI_SETTINGS_LABEL_WIDTH)
+                        .spacing([config::UI_ROW_GAP, config::UI_SMALL_GAP])
+                        .show(ui, |ui| {
+                            ui.label("Posisi mata:");
+                            ui.add(
+                                egui::Slider::new(
+                                    &mut self.settings.eye_line_pct,
+                                    EYE_LINE_MIN_PCT..=EYE_LINE_MAX_PCT,
+                                )
+                                .suffix("%"),
+                            );
+                            ui.end_row();
 
-                    ui.horizontal(|ui| {
-                        ui.label("Ruang di atas kepala:");
-                        ui.add(
-                            egui::Slider::new(
-                                &mut self.settings.headroom_pct,
-                                HEADROOM_MIN_PCT..=HEADROOM_MAX_PCT,
-                            )
-                            .suffix("%"),
-                        );
-                    });
+                            ui.label("Ruang di atas kepala:");
+                            ui.add(
+                                egui::Slider::new(
+                                    &mut self.settings.headroom_pct,
+                                    HEADROOM_MIN_PCT..=HEADROOM_MAX_PCT,
+                                )
+                                .suffix("%"),
+                            );
+                            ui.end_row();
+                        });
 
+                    ui.add_space(config::UI_SMALL_GAP);
                     if ui.button("Kembalikan ke awal").clicked() {
                         self.settings.reset_advanced();
                     }
                 });
+            });
         });
     }
 
-    fn render_action_and_status(&mut self, ui: &mut egui::Ui) {
-        if let Some(err) = &self.asset_error {
-            render_error_box(ui, err);
-            ui.add_space(6.0);
+    /// Status pill colors (text, background) derived from the current run state.
+    fn status_tone(&self) -> ([u8; 3], [u8; 3]) {
+        if self.is_running {
+            return (config::UI_TEXT_SECONDARY_RGB, config::UI_HOVER_BG_RGB);
         }
-
-        if let Some(err) = &self.process_error {
-            render_error_box(ui, err);
-            ui.add_space(6.0);
+        match &self.last_summary {
+            Some(summary) if summary.cancelled => {
+                (config::UI_WARNING_TEXT_RGB, config::UI_WARNING_BG_RGB)
+            }
+            Some(_) => (config::UI_SUCCESS_TEXT_RGB, config::UI_SUCCESS_BG_RGB),
+            None => (config::UI_TEXT_SECONDARY_RGB, config::UI_HOVER_BG_RGB),
         }
+    }
 
-        let has_valid_preview = matches!(
-            &self.preview,
-            PreviewState::Ready(p) if p.total_photos > 0
-        );
-        let (btn_label, btn_enabled) = main_button_state(
-            self.is_running,
-            self.is_cancelling,
-            has_valid_preview,
-            self.asset_error.is_some(),
-        );
+    fn render_process_card(&mut self, ui: &mut egui::Ui) {
+        let mut main_clicked = false;
+        let mut open_result_clicked = false;
 
-        let button = egui::Button::new(btn_label).min_size(egui::vec2(140.0, 32.0));
-        if ui.add_enabled(btn_enabled, button).clicked() {
+        card(ui, None, |ui| {
+            if let Some(err) = &self.asset_error {
+                render_error_box(ui, err);
+            }
+
+            if let Some(err) = &self.process_error {
+                render_error_box(ui, err);
+            }
+
+            let has_valid_preview = matches!(
+                &self.preview,
+                PreviewState::Ready(p) if p.total_photos > 0
+            );
+            let (btn_label, btn_enabled) = main_button_state(
+                self.is_running,
+                self.is_cancelling,
+                has_valid_preview,
+                self.asset_error.is_some(),
+            );
+            let show_progress = self.is_running || self.sheets_total > 0;
+
+            ui.horizontal(|ui| {
+                main_clicked = ui
+                    .add_enabled(btn_enabled, main_button(btn_label, self.is_running))
+                    .clicked();
+                if show_progress && !self.status_text.is_empty() {
+                    let (text_rgb, bg_rgb) = self.status_tone();
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        pill(
+                            ui,
+                            egui::RichText::new(&self.status_text)
+                                .font(semibold_font(config::UI_BODY_TEXT_SIZE))
+                                .color(rgb(text_rgb)),
+                            bg_rgb,
+                        );
+                    });
+                }
+            });
+
+            if show_progress {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                    ui.label(
+                        egui::RichText::new(format_sheet_progress(
+                            self.sheets_done,
+                            self.sheets_total,
+                        ))
+                        .color(rgb(config::UI_TEXT_SECONDARY_RGB)),
+                    );
+                });
+                let progress = if self.sheets_total > 0 {
+                    (self.sheets_done as f32 / self.sheets_total as f32).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                ui.add(
+                    egui::ProgressBar::new(progress)
+                        .fill(rgb(config::UI_ACCENT_RGB))
+                        .desired_height(config::UI_PROGRESS_HEIGHT),
+                );
+            }
+
+            if let Some(summary) = &self.last_summary {
+                ui.add_space(config::UI_SMALL_GAP);
+                let (text_rgb, bg_rgb) = if !summary.cancelled && summary.flagged == 0 {
+                    (config::UI_SUCCESS_TEXT_RGB, config::UI_SUCCESS_BG_RGB)
+                } else {
+                    (config::UI_WARNING_TEXT_RGB, config::UI_WARNING_BG_RGB)
+                };
+                egui::Frame::new()
+                    .fill(rgb(bg_rgb))
+                    .stroke(egui::Stroke::new(1.0, rgb(config::UI_CARD_BORDER_RGB)))
+                    .corner_radius(egui::CornerRadius::same(config::UI_BOX_RADIUS))
+                    .inner_margin(egui::Margin::same(config::UI_BOX_PADDING))
+                    .show(ui, |ui| {
+                        ui.set_min_width(ui.available_width());
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            open_result_clicked = ui.button("Buka Folder Hasil").clicked();
+                            ui.with_layout(
+                                egui::Layout::left_to_right(egui::Align::Center)
+                                    .with_main_wrap(true),
+                                |ui| {
+                                    wrapped_label(
+                                        ui,
+                                        egui::RichText::new(format_finished_summary(summary))
+                                            .font(semibold_font(config::UI_BODY_TEXT_SIZE))
+                                            .color(rgb(text_rgb)),
+                                    );
+                                },
+                            );
+                        });
+                    });
+            }
+        });
+
+        if main_clicked {
             if self.is_running {
                 if let Some(cancel) = &self.cancel_flag {
                     cancel.store(true, Ordering::Relaxed);
@@ -632,86 +746,376 @@ impl App {
             }
         }
 
-        if self.is_running || self.sheets_total > 0 {
-            ui.add_space(8.0);
-            let progress = if self.sheets_total > 0 {
-                (self.sheets_done as f32 / self.sheets_total as f32).clamp(0.0, 1.0)
-            } else {
-                0.0
-            };
-            let progress_text = format_sheet_progress(self.sheets_done, self.sheets_total);
-            ui.add(egui::ProgressBar::new(progress).text(progress_text));
-
-            if !self.status_text.is_empty() {
-                ui.label(&self.status_text);
-            }
-        }
-
-        let mut open_result_clicked = false;
-        if let Some(summary) = &self.last_summary {
-            ui.add_space(8.0);
-            ui.strong(format_finished_summary(summary));
-
-            if !self.flagged_items.is_empty() {
-                ui.add_space(4.0);
-                ui.label("Daftar foto yang perlu dicek:");
-                egui::ScrollArea::vertical()
-                    .id_salt("flagged_scroll")
-                    .max_height(140.0)
-                    .show(ui, |ui| {
-                        for item in &self.flagged_items {
-                            ui.label(format!(
-                                "[{}] {}: {}",
-                                item.class,
-                                item.file,
-                                item.reasons.join("; ")
-                            ));
-                        }
-                    });
-            }
-
-            ui.add_space(4.0);
-            if ui.button("Buka Folder Hasil").clicked() {
-                open_result_clicked = true;
-            }
-        }
-
         if open_result_clicked {
             self.open_output_folder();
         }
+    }
 
-        ui.add_space(8.0);
-        egui::CollapsingHeader::new("Catatan proses")
-            .default_open(false)
-            .show(ui, |ui| {
-                if self.logs.is_empty() {
-                    ui.label("Belum ada catatan.");
-                } else {
+    fn render_flagged_card(&self, ui: &mut egui::Ui) {
+        if self.last_summary.is_none() || self.flagged_items.is_empty() {
+            return;
+        }
+
+        ui.add_space(config::UI_CARD_GAP);
+        card(ui, Some("Daftar foto yang perlu dicek"), |ui| {
+            egui::Frame::new()
+                .stroke(egui::Stroke::new(1.0, rgb(config::UI_CARD_BORDER_RGB)))
+                .corner_radius(egui::CornerRadius::same(config::UI_BOX_RADIUS))
+                .show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
                     egui::ScrollArea::vertical()
-                        .id_salt("logs_scroll")
-                        .max_height(160.0)
+                        .id_salt("flagged_scroll")
+                        .max_height(config::UI_FLAGGED_LIST_MAX_HEIGHT)
+                        .auto_shrink([false, true])
                         .show(ui, |ui| {
-                            for line in &self.logs {
-                                ui.label(line);
+                            ui.spacing_mut().item_spacing.y = 0.0;
+                            for (index, item) in self.flagged_items.iter().enumerate() {
+                                if index > 0 {
+                                    ui.add(egui::Separator::default().spacing(0.0));
+                                }
+                                render_flagged_row(ui, index + 1, item);
                             }
                         });
-                }
-            });
+                });
+        });
+    }
+
+    fn render_log_card(&self, ui: &mut egui::Ui) {
+        collapsing_panel(ui, "Catatan proses", config::UI_CARD_RADIUS, |ui| {
+            if self.logs.is_empty() {
+                ui.label(
+                    egui::RichText::new("Belum ada catatan.")
+                        .color(rgb(config::UI_TEXT_SECONDARY_RGB)),
+                );
+            } else {
+                egui::ScrollArea::vertical()
+                    .id_salt("logs_scroll")
+                    .max_height(config::UI_LOG_MAX_HEIGHT)
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        for line in &self.logs {
+                            wrapped_label(
+                                ui,
+                                egui::RichText::new(line).color(rgb(config::UI_TEXT_SECONDARY_RGB)),
+                            );
+                        }
+                    });
+            }
+        });
     }
 }
 
-fn render_error_box(ui: &mut egui::Ui, message: &str) {
-    let bg = egui::Color32::from_rgb(255, 228, 228);
-    let stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(200, 80, 80));
-    let text_color = egui::Color32::from_rgb(140, 20, 20);
+/// Font family name registered by [`load_fonts`] for semibold text.
+const SEMIBOLD_FAMILY: &str = "semibold";
 
+/// Builds font definitions with Windows UI fonts in front of egui's defaults.
+/// Missing font files are skipped, so egui's own fonts remain as fallback.
+fn load_fonts() -> egui::FontDefinitions {
+    let mut fonts = egui::FontDefinitions::default();
+    if let Ok(bytes) = std::fs::read(config::UI_FONT_REGULAR_PATH) {
+        insert_font_front(&mut fonts, "segoeui", bytes, egui::FontFamily::Proportional);
+    }
+
+    // The semibold family always exists so `semibold_font` never refers to a missing family.
+    let proportional = fonts
+        .families
+        .get(&egui::FontFamily::Proportional)
+        .cloned()
+        .unwrap_or_default();
+    let semibold = egui::FontFamily::Name(SEMIBOLD_FAMILY.into());
+    fonts.families.insert(semibold.clone(), proportional);
+    if let Ok(bytes) = std::fs::read(config::UI_FONT_SEMIBOLD_PATH) {
+        insert_font_front(&mut fonts, "seguisb", bytes, semibold);
+    }
+
+    if let Ok(bytes) = std::fs::read(config::UI_FONT_MONO_PATH) {
+        insert_font_front(&mut fonts, "consola", bytes, egui::FontFamily::Monospace);
+    }
+    fonts
+}
+
+fn insert_font_front(
+    fonts: &mut egui::FontDefinitions,
+    name: &str,
+    bytes: Vec<u8>,
+    family: egui::FontFamily,
+) {
+    fonts.font_data.insert(
+        name.to_string(),
+        Arc::new(egui::FontData::from_owned(bytes)),
+    );
+    fonts
+        .families
+        .entry(family)
+        .or_default()
+        .insert(0, name.to_string());
+}
+
+/// Light theme style: larger text, taller controls, white bordered buttons.
+fn apply_light_style(style: &mut egui::Style) {
+    style.text_styles.insert(
+        egui::TextStyle::Body,
+        egui::FontId::proportional(config::UI_BODY_TEXT_SIZE),
+    );
+    style.text_styles.insert(
+        egui::TextStyle::Button,
+        egui::FontId::proportional(config::UI_BODY_TEXT_SIZE),
+    );
+    style.text_styles.insert(
+        egui::TextStyle::Monospace,
+        egui::FontId::monospace(config::UI_MONO_TEXT_SIZE),
+    );
+    style.interaction.selectable_labels = false;
+
+    style.spacing.item_spacing = egui::Vec2::from(config::UI_ITEM_SPACING);
+    style.spacing.button_padding = egui::Vec2::from(config::UI_BUTTON_PADDING);
+    style.spacing.interact_size.y = config::UI_CONTROL_HEIGHT;
+
+    let visuals = &mut style.visuals;
+    let primary = rgb(config::UI_TEXT_PRIMARY_RGB);
+    let border = egui::Stroke::new(1.0, rgb(config::UI_CARD_BORDER_RGB));
+    visuals.indent_has_left_vline = false;
+    visuals.extreme_bg_color = rgb(config::UI_PRESSED_BG_RGB);
+    visuals.widgets.noninteractive.fg_stroke.color = primary;
+    visuals.widgets.noninteractive.bg_stroke = border;
+
+    let widgets = &mut visuals.widgets;
+    for (widget, fill) in [
+        (&mut widgets.inactive, config::UI_CARD_BG_RGB),
+        (&mut widgets.hovered, config::UI_HOVER_BG_RGB),
+        (&mut widgets.active, config::UI_PRESSED_BG_RGB),
+        (&mut widgets.open, config::UI_PRESSED_BG_RGB),
+    ] {
+        widget.weak_bg_fill = rgb(fill);
+        widget.bg_stroke = border;
+        widget.fg_stroke.color = primary;
+        widget.corner_radius = egui::CornerRadius::same(config::UI_WIDGET_RADIUS);
+        widget.expansion = 0.0;
+    }
+}
+
+/// Converts an RGB constant from `config` to an egui color.
+fn rgb(color: [u8; 3]) -> egui::Color32 {
+    let [r, g, b] = color;
+    egui::Color32::from_rgb(r, g, b)
+}
+
+/// Semibold font at the given size.
+fn semibold_font(size: f32) -> egui::FontId {
+    egui::FontId::new(size, egui::FontFamily::Name(SEMIBOLD_FAMILY.into()))
+}
+
+/// Card title text: semibold and in the accent color.
+fn section_title(text: &str) -> egui::RichText {
+    egui::RichText::new(text)
+        .font(semibold_font(config::UI_SECTION_TITLE_SIZE))
+        .color(rgb(config::UI_ACCENT_RGB))
+}
+
+/// Adds a label that always wraps instead of overflowing horizontally.
+fn wrapped_label(ui: &mut egui::Ui, text: egui::RichText) {
+    ui.add(egui::Label::new(text).wrap());
+}
+
+/// Draws a full-width white card with a border and an optional title with a divider.
+fn card(ui: &mut egui::Ui, title: Option<&str>, add_contents: impl FnOnce(&mut egui::Ui)) {
     egui::Frame::new()
-        .fill(bg)
-        .stroke(stroke)
-        .inner_margin(egui::Margin::same(8))
-        .corner_radius(egui::CornerRadius::same(4))
+        .fill(rgb(config::UI_CARD_BG_RGB))
+        .stroke(egui::Stroke::new(1.0, rgb(config::UI_CARD_BORDER_RGB)))
+        .corner_radius(egui::CornerRadius::same(config::UI_CARD_RADIUS))
+        .inner_margin(egui::Margin::same(config::UI_CARD_PADDING))
         .show(ui, |ui| {
-            ui.colored_label(text_color, message);
+            ui.set_min_width(ui.available_width());
+            if let Some(title) = title {
+                ui.label(section_title(title));
+                ui.add(egui::Separator::default().spacing(config::UI_ROW_GAP));
+            }
+            add_contents(ui);
+        });
+}
+
+/// Full-width bordered panel with a collapsible header, closed by default.
+fn collapsing_panel(
+    ui: &mut egui::Ui,
+    title: &str,
+    corner_radius: u8,
+    add_body: impl FnOnce(&mut egui::Ui),
+) {
+    egui::Frame::new()
+        .fill(rgb(config::UI_CARD_BG_RGB))
+        .stroke(egui::Stroke::new(1.0, rgb(config::UI_CARD_BORDER_RGB)))
+        .corner_radius(egui::CornerRadius::same(corner_radius))
+        .inner_margin(egui::Margin::symmetric(config::UI_BOX_PADDING, 0))
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            egui::CollapsingHeader::new(
+                egui::RichText::new(title).color(rgb(config::UI_TEXT_PRIMARY_RGB)),
+            )
+            .default_open(false)
+            .show(ui, |ui| {
+                add_body(ui);
+                ui.add_space(config::UI_ROW_GAP);
+            });
+        });
+}
+
+/// Draws a full-width colored message box.
+fn message_box(ui: &mut egui::Ui, text: egui::RichText, bg_rgb: [u8; 3]) {
+    egui::Frame::new()
+        .fill(rgb(bg_rgb))
+        .corner_radius(egui::CornerRadius::same(config::UI_BOX_RADIUS))
+        .inner_margin(egui::Margin::same(config::UI_BOX_PADDING))
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            wrapped_label(ui, text);
+        });
+}
+
+fn render_error_box(ui: &mut egui::Ui, message: &str) {
+    message_box(
+        ui,
+        egui::RichText::new(message).color(rgb(config::UI_ERROR_TEXT_RGB)),
+        config::UI_ERROR_BG_RGB,
+    );
+}
+
+/// Small rounded label used for the status and for flagged reasons.
+fn pill(ui: &mut egui::Ui, text: egui::RichText, bg_rgb: [u8; 3]) {
+    let [pad_x, pad_y] = config::UI_CHIP_PADDING;
+    egui::Frame::new()
+        .fill(rgb(bg_rgb))
+        .corner_radius(egui::CornerRadius::same(config::UI_PILL_RADIUS))
+        .inner_margin(egui::Margin::symmetric(pad_x, pad_y))
+        .show(ui, |ui| {
+            wrapped_label(ui, text);
+        });
+}
+
+/// Main action button: filled accent for "Mulai Proses", outlined for "Batalkan".
+fn main_button(label: &'static str, is_running: bool) -> egui::Button<'static> {
+    let text = egui::RichText::new(label).font(semibold_font(config::UI_BODY_TEXT_SIZE));
+    let button = if is_running {
+        egui::Button::new(text.color(rgb(config::UI_ACCENT_RGB)))
+            .fill(rgb(config::UI_CARD_BG_RGB))
+            .stroke(egui::Stroke::new(1.0, rgb(config::UI_CARD_BORDER_RGB)))
+    } else {
+        egui::Button::new(text.color(rgb(config::UI_ON_ACCENT_TEXT_RGB)))
+            .fill(rgb(config::UI_ACCENT_RGB))
+            .stroke(egui::Stroke::NONE)
+    };
+    button.min_size(egui::Vec2::from(config::UI_PRIMARY_BUTTON_SIZE))
+}
+
+/// One folder row: fixed-width label, path box filling the middle, buttons on the right.
+/// `add_buttons` runs in a right-to-left layout.
+fn folder_row(ui: &mut egui::Ui, label: &str, path: &str, add_buttons: impl FnOnce(&mut egui::Ui)) {
+    // Top-aligned so a wrapped (multi-line) path grows downward without overlapping.
+    ui.horizontal_top(|ui| {
+        let label_size = egui::vec2(config::UI_FOLDER_LABEL_WIDTH, config::UI_CONTROL_HEIGHT);
+        ui.allocate_ui_with_layout(
+            label_size,
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                ui.set_min_size(label_size);
+                wrapped_label(
+                    ui,
+                    egui::RichText::new(label).color(rgb(config::UI_TEXT_PRIMARY_RGB)),
+                );
+            },
+        );
+
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+            add_buttons(ui);
+            path_box(ui, path);
+        });
+    });
+}
+
+/// Input-like box showing a folder path in monospace, filling the remaining width.
+fn path_box(ui: &mut egui::Ui, path: &str) {
+    let padding = config::UI_PATH_BOX_PADDING;
+    egui::Frame::new()
+        .fill(rgb(config::UI_APP_BG_RGB))
+        .stroke(egui::Stroke::new(1.0, rgb(config::UI_CARD_BORDER_RGB)))
+        .corner_radius(egui::CornerRadius::same(config::UI_WIDGET_RADIUS))
+        .inner_margin(egui::Margin::same(padding))
+        .show(ui, |ui| {
+            ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                ui.set_min_width(ui.available_width());
+                // Subtract padding and the 1 px border on both sides to match control height.
+                ui.set_min_height(config::UI_CONTROL_HEIGHT - 2.0 * f32::from(padding) - 2.0);
+                wrapped_label(
+                    ui,
+                    egui::RichText::new(path)
+                        .monospace()
+                        .color(rgb(config::UI_TEXT_PRIMARY_RGB)),
+                );
+            });
+        });
+}
+
+/// One row of the flagged list: number, file name with class, and reason chips.
+fn render_flagged_row(ui: &mut egui::Ui, number: usize, item: &FlaggedItem) {
+    egui::Frame::new()
+        .inner_margin(egui::Margin::symmetric(
+            config::UI_BOX_PADDING,
+            config::UI_BOX_PADDING,
+        ))
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.horizontal_top(|ui| {
+                // Rows keep their natural height so chips line up with the file name.
+                ui.spacing_mut().interact_size.y = 0.0;
+                ui.spacing_mut().item_spacing = egui::Vec2::from(config::UI_ITEM_SPACING);
+
+                ui.allocate_ui_with_layout(
+                    egui::vec2(config::UI_FLAG_NUMBER_WIDTH, 0.0),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        ui.set_min_width(config::UI_FLAG_NUMBER_WIDTH);
+                        ui.label(
+                            egui::RichText::new(format!("{number:02}"))
+                                .monospace()
+                                .color(rgb(config::UI_TEXT_SECONDARY_RGB)),
+                        );
+                    },
+                );
+
+                let available = ui.available_width();
+                let file_width = (available * config::UI_FLAG_FILE_COL_FRACTION)
+                    .max(config::UI_FLAG_FILE_COL_MIN_WIDTH)
+                    .min(available);
+                ui.allocate_ui_with_layout(
+                    egui::vec2(file_width, 0.0),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        ui.set_min_width(file_width);
+                        ui.spacing_mut().item_spacing.y = 2.0;
+                        wrapped_label(
+                            ui,
+                            egui::RichText::new(&item.file)
+                                .monospace()
+                                .color(rgb(config::UI_TEXT_PRIMARY_RGB)),
+                        );
+                        wrapped_label(
+                            ui,
+                            egui::RichText::new(format!("[{}]", item.class))
+                                .monospace()
+                                .color(rgb(config::UI_TEXT_SECONDARY_RGB)),
+                        );
+                    },
+                );
+
+                ui.horizontal_wrapped(|ui| {
+                    for reason in &item.reasons {
+                        pill(
+                            ui,
+                            egui::RichText::new(reason).color(rgb(config::UI_WARNING_TEXT_RGB)),
+                            config::UI_WARNING_BG_RGB,
+                        );
+                    }
+                });
+            });
         });
 }
 
@@ -725,19 +1129,34 @@ impl eframe::App for App {
         self.poll_preview(&ctx);
         self.poll_process(&ctx);
 
-        egui::CentralPanel::default().show(ui, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                self.render_folder_section(ui);
-                ui.add_space(8.0);
-                ui.separator();
-                ui.add_space(8.0);
-                self.render_settings_section(ui);
-                ui.add_space(8.0);
-                ui.separator();
-                ui.add_space(8.0);
-                self.render_action_and_status(ui);
+        let page_frame = egui::Frame::new()
+            .fill(rgb(config::UI_APP_BG_RGB))
+            .inner_margin(egui::Margin::same(config::UI_PAGE_MARGIN));
+        egui::CentralPanel::default()
+            .frame(page_frame)
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        // Center a column of at most UI_CONTENT_MAX_WIDTH.
+                        let full_width = ui.available_width();
+                        let width = full_width.min(config::UI_CONTENT_MAX_WIDTH);
+                        ui.horizontal_top(|ui| {
+                            ui.add_space(((full_width - width) / 2.0).max(0.0));
+                            ui.vertical(|ui| {
+                                ui.set_width(width);
+                                self.render_folder_section(ui);
+                                ui.add_space(config::UI_CARD_GAP);
+                                self.render_settings_section(ui);
+                                ui.add_space(config::UI_CARD_GAP);
+                                self.render_process_card(ui);
+                                self.render_flagged_card(ui);
+                                ui.add_space(config::UI_CARD_GAP);
+                                self.render_log_card(ui);
+                            });
+                        });
+                    });
             });
-        });
     }
 }
 

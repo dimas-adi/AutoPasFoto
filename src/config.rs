@@ -145,6 +145,108 @@ pub const UI_MIN_HEIGHT: f32 = 600.0;
 /// Application title displayed in the window header.
 pub const APP_TITLE: &str = "Pas Foto Otomatis";
 
+// --- GUI color palette (PRD 3.8, G1.10) ---
+/// Application background color (#F5F6F8).
+pub const UI_APP_BG_RGB: [u8; 3] = [245, 246, 248];
+/// Card background color (#FFFFFF).
+pub const UI_CARD_BG_RGB: [u8; 3] = [255, 255, 255];
+/// Card border color (#E4E7EC).
+pub const UI_CARD_BORDER_RGB: [u8; 3] = [228, 231, 236];
+/// Primary text color (#1D2939).
+pub const UI_TEXT_PRIMARY_RGB: [u8; 3] = [29, 41, 57];
+/// Secondary text color (#667085).
+pub const UI_TEXT_SECONDARY_RGB: [u8; 3] = [102, 112, 133];
+/// Accent color for main button, section titles, and progress bar (#BE1220).
+pub const UI_ACCENT_RGB: [u8; 3] = [190, 18, 32];
+/// Text color on top of the accent color (#FFFFFF).
+pub const UI_ON_ACCENT_TEXT_RGB: [u8; 3] = [255, 255, 255];
+/// Success message text color (#067647).
+pub const UI_SUCCESS_TEXT_RGB: [u8; 3] = [6, 118, 71];
+/// Success message background color (#ECFDF3).
+pub const UI_SUCCESS_BG_RGB: [u8; 3] = [236, 253, 243];
+/// Warning message text color, used for photos that need checking (#B54708).
+pub const UI_WARNING_TEXT_RGB: [u8; 3] = [181, 71, 8];
+/// Warning message background color (#FFFAEB).
+pub const UI_WARNING_BG_RGB: [u8; 3] = [255, 250, 235];
+/// Error message text color, used for asset errors (#B42318).
+pub const UI_ERROR_TEXT_RGB: [u8; 3] = [180, 35, 24];
+/// Error message background color (#FEF3F2).
+pub const UI_ERROR_BG_RGB: [u8; 3] = [254, 243, 242];
+/// Widget background color on hover (#F2F4F7).
+pub const UI_HOVER_BG_RGB: [u8; 3] = [242, 244, 247];
+/// Widget background color while pressed (#EAECF0).
+pub const UI_PRESSED_BG_RGB: [u8; 3] = [234, 236, 240];
+
+// --- GUI fonts (PRD 3.8, G1.10) ---
+/// Windows UI font for body text; egui default font is used if missing.
+pub const UI_FONT_REGULAR_PATH: &str = r"C:\Windows\Fonts\segoeui.ttf";
+/// Windows semibold UI font for titles and the main button.
+pub const UI_FONT_SEMIBOLD_PATH: &str = r"C:\Windows\Fonts\seguisb.ttf";
+/// Windows monospace font for paths and file names.
+pub const UI_FONT_MONO_PATH: &str = r"C:\Windows\Fonts\consola.ttf";
+
+// --- GUI spacing and sizes (PRD 3.8, G1.10) ---
+/// Outer margin around the whole page in pixels.
+pub const UI_PAGE_MARGIN: i8 = 16;
+/// Inner padding of each card in pixels.
+pub const UI_CARD_PADDING: i8 = 16;
+/// Corner radius of each card in pixels.
+pub const UI_CARD_RADIUS: u8 = 8;
+/// Inner padding of message boxes and path boxes in pixels.
+pub const UI_BOX_PADDING: i8 = 10;
+/// Corner radius of message boxes and path boxes in pixels.
+pub const UI_BOX_RADIUS: u8 = 6;
+/// Vertical gap between cards.
+pub const UI_CARD_GAP: f32 = 12.0;
+/// Vertical gap between rows inside a card.
+pub const UI_ROW_GAP: f32 = 8.0;
+/// Small vertical gap between closely related elements.
+pub const UI_SMALL_GAP: f32 = 4.0;
+/// Maximum width of the centered content column.
+pub const UI_CONTENT_MAX_WIDTH: f32 = 1120.0;
+/// Font size of card titles.
+pub const UI_SECTION_TITLE_SIZE: f32 = 15.0;
+/// Font size of body and button text.
+pub const UI_BODY_TEXT_SIZE: f32 = 14.0;
+/// Font size of monospace text (paths and file names).
+pub const UI_MONO_TEXT_SIZE: f32 = 13.0;
+/// Height of buttons, path boxes, and other controls.
+pub const UI_CONTROL_HEIGHT: f32 = 34.0;
+/// Corner radius of buttons and other widgets in pixels.
+pub const UI_WIDGET_RADIUS: u8 = 6;
+/// Inner padding (x, y) of buttons.
+pub const UI_BUTTON_PADDING: [f32; 2] = [12.0, 6.0];
+/// Spacing (x, y) between widgets.
+pub const UI_ITEM_SPACING: [f32; 2] = [10.0, 8.0];
+/// Width of the folder label column.
+pub const UI_FOLDER_LABEL_WIDTH: f32 = 140.0;
+/// Inner padding of the folder path box in pixels.
+pub const UI_PATH_BOX_PADDING: i8 = 8;
+/// Width of the label column in advanced settings.
+pub const UI_SETTINGS_LABEL_WIDTH: f32 = 160.0;
+/// Width of the advanced settings sliders.
+pub const UI_SLIDER_WIDTH: f32 = 220.0;
+/// Minimum size (width, height) of the main action button.
+pub const UI_PRIMARY_BUTTON_SIZE: [f32; 2] = [160.0, 38.0];
+/// Height of the progress bar.
+pub const UI_PROGRESS_HEIGHT: f32 = 8.0;
+/// Inner padding (x, y) of status pills and reason chips in pixels.
+pub const UI_CHIP_PADDING: [i8; 2] = [8, 3];
+/// Corner radius of status pills and reason chips in pixels.
+pub const UI_PILL_RADIUS: u8 = 12;
+/// Width of the number column in the flagged photo list.
+pub const UI_FLAG_NUMBER_WIDTH: f32 = 32.0;
+/// Width of the file column in the flagged photo list, as a fraction of the row.
+pub const UI_FLAG_FILE_COL_FRACTION: f32 = 0.4;
+/// Minimum width of the file column in the flagged photo list.
+pub const UI_FLAG_FILE_COL_MIN_WIDTH: f32 = 180.0;
+/// Maximum height of the pairing plan list before it scrolls.
+pub const UI_PREVIEW_LIST_MAX_HEIGHT: f32 = 160.0;
+/// Maximum height of the flagged photo list before it scrolls.
+pub const UI_FLAGGED_LIST_MAX_HEIGHT: f32 = 220.0;
+/// Maximum height of the process log before it scrolls.
+pub const UI_LOG_MAX_HEIGHT: f32 = 160.0;
+
 // --- Parity comparison constants (PRD 3.3, G1.8) ---
 /// Maximum allowed eye Y position difference in percentage points (1.5%).
 pub const PARITY_MAX_EYE_Y_DIFF: f64 = 0.015;

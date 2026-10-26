@@ -31,9 +31,28 @@ pub struct Skipped {
     pub reason: String,
 }
 
+/// Extracts the class name from a directory path.
+/// Uses the last directory name (file_name), with fallback to canonicalize().
+/// If the folder name cannot be determined (e.g. root or empty), falls back to "folder input".
+pub fn extract_folder_name(path: &Path) -> String {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| s.to_string())
+        .or_else(|| {
+            path.canonicalize().ok().and_then(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .filter(|s| !s.trim().is_empty())
+                    .map(|s| s.to_string())
+            })
+        })
+        .unwrap_or_else(|| "folder input".to_string())
+}
+
 /// Collects class folders from the input directory.
 /// If input has subdirectories, each is treated as a class, sorted case-insensitively.
-/// If input has no subdirectories, processes the input folder itself with an empty class name.
+/// If input has no subdirectories, processes the input folder itself with its folder name as the class name.
 pub fn collect_classes(input: &Path) -> Result<Vec<ClassDir>> {
     let mut subdirs = Vec::new();
 
@@ -56,8 +75,9 @@ pub fn collect_classes(input: &Path) -> Result<Vec<ClassDir>> {
     }
 
     if subdirs.is_empty() {
+        let name = extract_folder_name(input);
         Ok(vec![ClassDir {
-            name: String::new(),
+            name,
             path: input.to_path_buf(),
         }])
     } else {
@@ -275,8 +295,16 @@ mod tests {
         let single_dir = root.join("1A");
         let single_classes = collect_classes(&single_dir).expect("collect single class");
         assert_eq!(single_classes.len(), 1);
-        assert_eq!(single_classes[0].name, "");
+        assert_eq!(single_classes[0].name, "1A");
         assert_eq!(single_classes[0].path, single_dir);
+    }
+
+    #[test]
+    fn test_extract_folder_name() {
+        assert_eq!(extract_folder_name(Path::new("Input_Raw/X-1")), "X-1");
+        assert_eq!(extract_folder_name(Path::new("Input_Raw\\X-1")), "X-1");
+        assert_eq!(extract_folder_name(Path::new("testdata/raw")), "raw");
+        assert_eq!(extract_folder_name(Path::new("")), "folder input");
     }
 
     #[test]

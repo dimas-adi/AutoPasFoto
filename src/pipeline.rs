@@ -791,6 +791,36 @@ Foto berikut sebaiknya dicek manual:
     }
 
     #[test]
+    fn test_output_folder_and_filename_structure_single_class() {
+        let temp_dir = tempfile::tempdir().expect("create tempdir");
+        let class_input = temp_dir.path().join("X-1");
+        std::fs::create_dir(&class_input).expect("create class input");
+
+        // Verify collect_classes identifies "X-1" as class name
+        let classes = files::collect_classes(&class_input).expect("collect_classes");
+        assert_eq!(classes.len(), 1);
+        assert_eq!(classes[0].name, "X-1");
+
+        // Verify output paths logic
+        let out_root = temp_dir.path().join("output");
+        let out_3x4_root = out_root.join(config::DIR_OUTPUT_3X4);
+        let out_4r_root = out_root.join(config::DIR_OUTPUT_4R);
+
+        let out_3x4_dir = out_3x4_root.join(format!("{}_3x4", classes[0].name));
+        let out_4r_dir = out_4r_root.join(format!("{}_4R", classes[0].name));
+
+        assert_eq!(out_3x4_dir, out_root.join("Output_3x4").join("X-1_3x4"));
+        assert_eq!(out_4r_dir, out_root.join("Output_4R").join("X-1_4R"));
+
+        // Verify 4R output file naming
+        let output_name_pair = format!("{}_Absen_{}-{}_4R.jpg", classes[0].name, "01", "02");
+        assert_eq!(output_name_pair, "X-1_Absen_01-02_4R.jpg");
+
+        let output_name_single = format!("{}_Absen_{}_4R.jpg", classes[0].name, "01");
+        assert_eq!(output_name_single, "X-1_Absen_01_4R.jpg");
+    }
+
+    #[test]
     fn test_pipeline_integration_testdata_raw() {
         let raw_dir = Path::new("testdata/raw");
         let template_dir = Path::new(config::DIR_TEMPLATE);
@@ -838,5 +868,48 @@ Foto berikut sebaiknya dicek manual:
         let actual_4r = count_jpegs_recursive(&temp_out.path().join(config::DIR_OUTPUT_4R));
         assert_eq!(actual_3x4, expected_photos);
         assert_eq!(actual_4r, expected_sheets);
+
+        // Verify folder structure for input without subfolders:
+        // Output_3x4/raw_3x4/ and Output_4R/raw_4R/
+        let raw_3x4_dir = temp_out.path().join(config::DIR_OUTPUT_3X4).join("raw_3x4");
+        let raw_4r_dir = temp_out.path().join(config::DIR_OUTPUT_4R).join("raw_4R");
+        assert!(
+            raw_3x4_dir.is_dir(),
+            "Folder Output_3x4/raw_3x4 harus dibuat"
+        );
+        assert!(raw_4r_dir.is_dir(), "Folder Output_4R/raw_4R harus dibuat");
+
+        // Verify 4R sheet filenames begin with "raw_Absen_"
+        let r4_entries = std::fs::read_dir(&raw_4r_dir).expect("read raw_4r_dir");
+        let mut count_4r_files = 0;
+        for entry in r4_entries {
+            let entry = entry.expect("valid entry");
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.ends_with(".jpg") {
+                count_4r_files += 1;
+                assert!(
+                    name.starts_with("raw_Absen_"),
+                    "File 4R harus diawali dengan raw_Absen_, ditemukan: {name}"
+                );
+            }
+        }
+        assert_eq!(count_4r_files, expected_sheets);
+
+        // Verify PERLU_DICEK.txt uses [raw] prefix if flagged entries exist
+        let perlu_dicek_path = temp_out
+            .path()
+            .join(config::DIR_OUTPUT_4R)
+            .join(config::FILE_PERLU_DICEK);
+        if perlu_dicek_path.is_file() {
+            let content = std::fs::read_to_string(&perlu_dicek_path).expect("read PERLU_DICEK.txt");
+            assert!(
+                !content.contains("[folder input]"),
+                "PERLU_DICEK.txt tidak boleh memuat '[folder input]'"
+            );
+            assert!(
+                content.contains("[raw]"),
+                "PERLU_DICEK.txt harus menggunakan prefix '[raw]'"
+            );
+        }
     }
 }

@@ -305,4 +305,123 @@ mod tests {
             "Label text 2 must not be drawn when student 2 is None"
         );
     }
+
+    #[test]
+    fn test_label_pixels_diff_with_class_and_without_label() {
+        let font_path = Path::new(config::FALLBACK_FONT_PATH);
+        if !font_path.exists() {
+            println!(
+                "Skipping test_label_pixels_diff_with_class_and_without_label: font fallback tidak ditemukan di {:?}",
+                font_path
+            );
+            return;
+        }
+
+        let font_bytes = match std::fs::read(font_path) {
+            Ok(b) => b,
+            Err(e) => {
+                println!(
+                    "Skipping test_label_pixels_diff_with_class_and_without_label: gagal membaca font ({e})"
+                );
+                return;
+            }
+        };
+        let font = match FontArc::try_from_vec(font_bytes) {
+            Ok(f) => f,
+            Err(e) => {
+                println!(
+                    "Skipping test_label_pixels_diff_with_class_and_without_label: font rusak ({e})"
+                );
+                return;
+            }
+        };
+
+        let template = RgbaImage::new(config::CANVAS_4R_WIDTH, config::CANVAS_4R_HEIGHT);
+        let assets = Assets {
+            template,
+            overlay: None,
+            font,
+        };
+
+        let student_1 = RgbImage::from_pixel(
+            config::SLOT_WIDTH,
+            config::SLOT_HEIGHT,
+            Rgb([100, 100, 100]),
+        );
+        let student_2 = RgbImage::from_pixel(
+            config::SLOT_WIDTH,
+            config::SLOT_HEIGHT,
+            Rgb([120, 120, 120]),
+        );
+
+        // Render sheet 1: dengan nama kelas "X-1"
+        let sheet_with_label = compose_sheet(
+            &assets,
+            Some((&student_1, "01")),
+            Some((&student_2, "02")),
+            "X-1",
+        );
+
+        // Render sheet 2: tanpa label (nama kelas kosong)
+        let sheet_without_label = compose_sheet(
+            &assets,
+            Some((&student_1, "01")),
+            Some((&student_2, "02")),
+            "",
+        );
+
+        // Bandingkan piksel di area label baris 1 (1533, 200)
+        let mut diff_count_row1 = 0;
+        let mut dark_text_pixels_row1 = 0;
+        for dy in 0..50 {
+            for dx in 0..200 {
+                let x = config::LABEL_ROW1_POS.0 as u32 + dx;
+                let y = config::LABEL_ROW1_POS.1 as u32 + dy;
+                let p_with = sheet_with_label.get_pixel(x, y);
+                let p_without = sheet_without_label.get_pixel(x, y);
+                if p_with != p_without {
+                    diff_count_row1 += 1;
+                    if p_with[0] > 50 && p_with[1] < 100 && p_with[2] < 100 {
+                        dark_text_pixels_row1 += 1;
+                    }
+                }
+            }
+        }
+
+        assert!(
+            diff_count_row1 > 0,
+            "Piksel di area label baris 1 (1533, 200) harus berbeda antara render dengan kelas X-1 dan tanpa label"
+        );
+        assert!(
+            dark_text_pixels_row1 > 0,
+            "Harus ada piksel teks gelap di area label baris 1 (1533, 200)"
+        );
+
+        // Bandingkan piksel di area label baris 2 (1533, 678)
+        let mut diff_count_row2 = 0;
+        let mut dark_text_pixels_row2 = 0;
+        for dy in 0..50 {
+            for dx in 0..200 {
+                let x = config::LABEL_ROW2_POS.0 as u32 + dx;
+                let y = config::LABEL_ROW2_POS.1 as u32 + dy;
+                let p_with = sheet_with_label.get_pixel(x, y);
+                let p_without = sheet_without_label.get_pixel(x, y);
+                if p_with != p_without {
+                    diff_count_row2 += 1;
+                    if p_with[0] > 50 && p_with[1] < 100 && p_with[2] < 100 {
+                        dark_text_pixels_row2 += 1;
+                    }
+                }
+            }
+        }
+
+        assert!(
+            diff_count_row2 > 0,
+            "Piksel di area label baris 2 (1533, 678) harus berbeda antara render dengan kelas X-1 dan tanpa label"
+        );
+        assert!(
+            dark_text_pixels_row2 > 0,
+            "Harus ada piksel teks gelap di area label baris 2 (1533, 678)"
+        );
+    }
 }

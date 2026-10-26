@@ -24,7 +24,7 @@ fn main() -> Result<()> {
     eframe::run_native(
         pasfoto::config::APP_TITLE,
         options,
-        Box::new(|_cc| Ok(Box::new(pasfoto::ui::App))),
+        Box::new(|cc| Ok(Box::new(pasfoto::ui::App::new(cc)))),
     )
     .map_err(|e| anyhow::anyhow!("Failed to run UI: {e}"))
 }

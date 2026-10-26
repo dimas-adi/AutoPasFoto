@@ -1,0 +1,39 @@
+[package]
+name = "pasfoto"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "pasfoto"
+path = "src/lib.rs"
+
+[[bin]]
+name = "PasFoto"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[dependencies]
+ab_glyph = "0.2.32"
+anyhow = "1.0.104"
+eframe = { version = "0.37.0", features = ["persistence"] }
+fast_image_resize = { version = "6.1.0", features = ["image"] }
+image = { version = "0.25.10", features = ["jpeg", "png"] }
+imageproc = "0.27.0"
+rayon = "1.12.0"
+rfd = "0.17.2"
+serde = { version = "1.0.229", features = ["derive"] }
+tract-onnx = "0.23.9"
+
+[dev-dependencies]
+tempfile = "3.27.0"

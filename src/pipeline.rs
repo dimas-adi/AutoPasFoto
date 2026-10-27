@@ -514,7 +514,7 @@ fn cli_usage() -> &'static str {
 }
 
 /// Parses a 6-digit hex color string (`#RRGGBB` or `RRGGBB`) into `[r, g, b]`.
-fn parse_hex_color(raw: &str) -> Result<[u8; 3]> {
+pub(crate) fn parse_hex_color(raw: &str) -> Result<[u8; 3]> {
     let hex = raw.trim().strip_prefix('#').unwrap_or(raw.trim());
     if hex.len() != 6 || !hex.is_ascii() {
         bail!(

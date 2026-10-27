@@ -87,6 +87,22 @@ pub fn pct_to_fraction(pct: u32) -> f64 {
     f64::from(pct) / 100.0
 }
 
+/// Friendly Indonesian error message when hex color format is invalid.
+pub const HEX_COLOR_ERROR_MSG: &str = "Gunakan format #RRGGBB, misalnya #BE1220";
+
+/// Formats an RGB color array as an uppercase 6-digit hex string with `#` prefix (e.g. `[190, 18, 32]` -> `"#BE1220"`).
+pub fn format_hex_color(rgb: [u8; 3]) -> String {
+    format!("#{:02X}{:02X}{:02X}", rgb[0], rgb[1], rgb[2])
+}
+
+/// Validates and parses a hex color input string using `pipeline::parse_hex_color`.
+///
+/// Accepts 6-digit hex with or without `#`, case-insensitive.
+/// Returns friendly Indonesian error message if invalid.
+pub fn validate_hex_color(raw: &str) -> Result<[u8; 3], &'static str> {
+    pipeline::parse_hex_color(raw).map_err(|_| HEX_COLOR_ERROR_MSG)
+}
+
 /// Returns the display label for a class name, matching `src/pipeline.rs` lines 277-281.
 pub fn class_display_label(name: &str) -> String {
     if name.is_empty() {
@@ -230,6 +246,8 @@ pub struct App {
     logs: Vec<String>,
     flagged_items: Vec<FlaggedItem>,
     last_summary: Option<Summary>,
+    bg_color_hex: String,
+    bg_color_error: Option<String>,
 }
 
 impl Default for App {
@@ -263,6 +281,7 @@ impl App {
             .clamp(HEADROOM_MIN_PCT, HEADROOM_MAX_PCT);
 
         let asset_error = check_assets();
+        let bg_color_hex = format_hex_color(settings.bg_color);
         let mut app = Self {
             settings,
             asset_error,
@@ -279,6 +298,8 @@ impl App {
             logs: Vec::new(),
             flagged_items: Vec::new(),
             last_summary: None,
+            bg_color_hex,
+            bg_color_error: None,
         };
 
         if let Some(raw_dir) = app.settings.raw_dir.clone() {
@@ -320,6 +341,19 @@ impl App {
     }
 
     fn start_process(&mut self) {
+        if self.settings.replace_bg {
+            match validate_hex_color(&self.bg_color_hex) {
+                Ok(rgb) => {
+                    self.settings.bg_color = rgb;
+                    self.bg_color_hex = format_hex_color(rgb);
+                    self.bg_color_error = None;
+                }
+                Err(err) => {
+                    self.bg_color_error = Some(err.to_string());
+                    return;
+                }
+            }
+        }
         self.asset_error = check_assets();
         if self.asset_error.is_some() {
             return;
@@ -579,11 +613,50 @@ impl App {
         card(ui, Some("Pengaturan"), |ui| {
             ui.add_enabled_ui(!self.is_running, |ui| {
                 ui.horizontal(|ui| {
-                    ui.checkbox(&mut self.settings.replace_bg, "Ganti warna latar");
+                    let chk = ui.checkbox(&mut self.settings.replace_bg, "Ganti warna latar");
+                    if chk.changed() && !self.settings.replace_bg {
+                        self.bg_color_error = None;
+                        self.bg_color_hex = format_hex_color(self.settings.bg_color);
+                    }
                     ui.add_enabled_ui(self.settings.replace_bg, |ui| {
-                        ui.color_edit_button_srgb(&mut self.settings.bg_color);
+                        let color_res = ui.color_edit_button_srgb(&mut self.settings.bg_color);
+                        if color_res.changed() {
+                            self.bg_color_hex = format_hex_color(self.settings.bg_color);
+                            self.bg_color_error = None;
+                        }
+
+                        let text_edit =
+                            egui::TextEdit::singleline(&mut self.bg_color_hex).desired_width(75.0);
+                        let text_res = ui.add(text_edit);
+                        if text_res.changed() {
+                            self.bg_color_error = None;
+                        }
+
+                        let enter_pressed =
+                            text_res.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                        let lost_focus = text_res.lost_focus();
+
+                        if lost_focus || enter_pressed {
+                            match validate_hex_color(&self.bg_color_hex) {
+                                Ok(rgb) => {
+                                    self.settings.bg_color = rgb;
+                                    self.bg_color_hex = format_hex_color(rgb);
+                                    self.bg_color_error = None;
+                                }
+                                Err(err_msg) => {
+                                    self.bg_color_error = Some(err_msg.to_string());
+                                }
+                            }
+                        }
                     });
                 });
+
+                if self.settings.replace_bg
+                    && let Some(err) = &self.bg_color_error
+                {
+                    ui.add_space(config::UI_SMALL_GAP);
+                    ui.colored_label(rgb(config::UI_ERROR_TEXT_RGB), err);
+                }
 
                 collapsing_panel(ui, "Pengaturan lanjutan", config::UI_BOX_RADIUS, |ui| {
                     ui.spacing_mut().slider_width = config::UI_SLIDER_WIDTH;
@@ -1270,5 +1343,54 @@ mod tests {
             main_button_state(true, true, true, false),
             ("Batalkan", false)
         );
+    }
+
+    #[test]
+    fn test_format_hex_color() {
+        assert_eq!(format_hex_color([190, 18, 32]), "#BE1220");
+        assert_eq!(format_hex_color([31, 79, 191]), "#1F4FBF");
+        assert_eq!(format_hex_color([0, 0, 0]), "#000000");
+        assert_eq!(format_hex_color([255, 255, 255]), "#FFFFFF");
+        assert_eq!(format_hex_color([10, 11, 12]), "#0A0B0C");
+    }
+
+    #[test]
+    fn test_validate_hex_color_valid() {
+        // With hash, uppercase and lowercase
+        assert_eq!(validate_hex_color("#BE1220"), Ok([190, 18, 32]));
+        assert_eq!(validate_hex_color("#be1220"), Ok([190, 18, 32]));
+        assert_eq!(validate_hex_color("#1F4FBF"), Ok([31, 79, 191]));
+        assert_eq!(validate_hex_color("#1f4fbf"), Ok([31, 79, 191]));
+
+        // Without hash, uppercase and lowercase
+        assert_eq!(validate_hex_color("BE1220"), Ok([190, 18, 32]));
+        assert_eq!(validate_hex_color("be1220"), Ok([190, 18, 32]));
+        assert_eq!(validate_hex_color("1F4FBF"), Ok([31, 79, 191]));
+        assert_eq!(validate_hex_color("1f4fbf"), Ok([31, 79, 191]));
+
+        // With surrounding whitespace
+        assert_eq!(validate_hex_color("  #1F4FBF  "), Ok([31, 79, 191]));
+    }
+
+    #[test]
+    fn test_validate_hex_color_invalid() {
+        // Empty or whitespace only
+        assert_eq!(validate_hex_color(""), Err(HEX_COLOR_ERROR_MSG));
+        assert_eq!(validate_hex_color("   "), Err(HEX_COLOR_ERROR_MSG));
+
+        // Wrong length (too short)
+        assert_eq!(validate_hex_color("#12345"), Err(HEX_COLOR_ERROR_MSG));
+        assert_eq!(validate_hex_color("12345"), Err(HEX_COLOR_ERROR_MSG));
+        assert_eq!(validate_hex_color("#"), Err(HEX_COLOR_ERROR_MSG));
+
+        // Wrong length (too long)
+        assert_eq!(validate_hex_color("#1234567"), Err(HEX_COLOR_ERROR_MSG));
+        assert_eq!(validate_hex_color("1234567"), Err(HEX_COLOR_ERROR_MSG));
+        assert_eq!(validate_hex_color("##123456"), Err(HEX_COLOR_ERROR_MSG));
+
+        // Non-hex characters
+        assert_eq!(validate_hex_color("xyz"), Err(HEX_COLOR_ERROR_MSG));
+        assert_eq!(validate_hex_color("#xyz123"), Err(HEX_COLOR_ERROR_MSG));
+        assert_eq!(validate_hex_color("#GGGGGG"), Err(HEX_COLOR_ERROR_MSG));
     }
 }

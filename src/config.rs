@@ -238,6 +238,8 @@ pub const UI_PILL_RADIUS: u8 = 12;
 pub const UI_PREVIEW_LIST_MAX_HEIGHT: f32 = 160.0;
 /// Fixed height of the flagged photo list; it scrolls inside this height.
 pub const FLAG_LIST_HEIGHT: f32 = 360.0;
+/// Minimum width of the "Keterangan" column in the flagged table, in pixels.
+pub const FLAG_REASON_MIN_WIDTH: f32 = 160.0;
 /// Maximum height of the process log before it scrolls.
 pub const UI_LOG_MAX_HEIGHT: f32 = 160.0;
 

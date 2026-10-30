@@ -108,20 +108,36 @@ pub fn format_flag_reasons(reasons: &[String]) -> String {
     reasons.join("; ")
 }
 
-/// Groups flagged photos by class. Classes and files are sorted by name, ignoring case.
-fn group_flagged_by_class(items: &[FlaggedItem]) -> Vec<(String, Vec<&FlaggedItem>)> {
-    let mut groups: Vec<(String, Vec<&FlaggedItem>)> = Vec::new();
-    for item in items {
-        match groups.iter_mut().find(|(class, _)| *class == item.class) {
-            Some((_, list)) => list.push(item),
-            None => groups.push((item.class.clone(), vec![item])),
-        }
-    }
-    groups.sort_by_key(|(class, _)| (class.to_lowercase(), class.clone()));
-    for (_, list) in &mut groups {
-        list.sort_by_key(|item| (item.file.to_lowercase(), item.file.clone()));
-    }
-    groups
+/// One row of the flagged photo table.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FlagRow {
+    pub no: usize,
+    pub class: String,
+    pub file: String,
+    pub reason: String,
+}
+
+/// Builds the table rows: sorted by class, then file name (ignoring case), numbered from 1.
+fn flag_table_rows(items: &[FlaggedItem]) -> Vec<FlagRow> {
+    let mut sorted: Vec<&FlaggedItem> = items.iter().collect();
+    sorted.sort_by_key(|item| {
+        (
+            item.class.to_lowercase(),
+            item.class.clone(),
+            item.file.to_lowercase(),
+            item.file.clone(),
+        )
+    });
+    sorted
+        .into_iter()
+        .enumerate()
+        .map(|(index, item)| FlagRow {
+            no: index + 1,
+            class: item.class.clone(),
+            file: item.file.clone(),
+            reason: format_flag_reasons(&item.reasons),
+        })
+        .collect()
 }
 
 /// Formats the preview summary text after scanning the raw folder (e.g. "3 kelas, 105 foto").
@@ -854,9 +870,7 @@ impl App {
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
                             ui.set_min_width(ui.available_width());
-                            for (class, items) in group_flagged_by_class(&self.flagged_items) {
-                                render_flagged_class(ui, &class, &items);
-                            }
+                            render_flagged_table(ui, &flag_table_rows(&self.flagged_items));
                         });
                 });
         });
@@ -1136,28 +1150,95 @@ fn path_box(ui: &mut egui::Ui, path: &str) {
         });
 }
 
-/// One class block of the flagged list: small class title, then one line per photo
-/// (file name, then reasons; reasons wrap to the next line when long).
-fn render_flagged_class(ui: &mut egui::Ui, class: &str, items: &[&FlaggedItem]) {
-    ui.add_space(config::UI_SMALL_GAP);
-    ui.label(
-        egui::RichText::new(class)
-            .font(semibold_font(config::UI_BODY_TEXT_SIZE))
-            .color(rgb(config::UI_TEXT_SECONDARY_RGB)),
+/// Width of the widest text among `texts` (and the header) when laid out on one line.
+fn max_text_width<'a>(
+    ui: &egui::Ui,
+    header: (&str, egui::FontId),
+    texts: impl Iterator<Item = &'a str>,
+    font: egui::FontId,
+) -> f32 {
+    let measure = |text: &str, font: egui::FontId| {
+        ui.painter()
+            .layout_no_wrap(text.to_string(), font, egui::Color32::PLACEHOLDER)
+            .size()
+            .x
+    };
+    texts
+        .map(|text| measure(text, font.clone()))
+        .fold(measure(header.0, header.1), f32::max)
+}
+
+/// Flagged photo table: No., Kelas, Nama File, Keterangan.
+/// The first three columns fit their content; "Keterangan" gets the remaining width
+/// and wraps, so the table never grows wider than the available space.
+fn render_flagged_table(ui: &mut egui::Ui, rows: &[FlagRow]) {
+    let header_font = semibold_font(config::UI_BODY_TEXT_SIZE);
+    let body_font = egui::TextStyle::Body.resolve(ui.style());
+    let mono_font = egui::TextStyle::Monospace.resolve(ui.style());
+
+    // the last row has the highest number, so it is the widest
+    let last_no = rows
+        .last()
+        .map(|row| row.no.to_string())
+        .unwrap_or_default();
+    let no_width = max_text_width(
+        ui,
+        ("No.", header_font.clone()),
+        std::iter::once(last_no.as_str()),
+        body_font.clone(),
     );
-    for item in items {
-        ui.horizontal_wrapped(|ui| {
-            ui.label(
-                egui::RichText::new(&item.file)
-                    .monospace()
-                    .color(rgb(config::UI_TEXT_PRIMARY_RGB)),
-            );
-            ui.label(
-                egui::RichText::new(format_flag_reasons(&item.reasons))
-                    .color(rgb(config::UI_WARNING_TEXT_RGB)),
-            );
+    let class_width = max_text_width(
+        ui,
+        ("Kelas", header_font.clone()),
+        rows.iter().map(|row| row.class.as_str()),
+        body_font,
+    );
+    let file_width = max_text_width(
+        ui,
+        ("Nama File", header_font.clone()),
+        rows.iter().map(|row| row.file.as_str()),
+        mono_font,
+    );
+    let spacing = ui.spacing().item_spacing.x;
+    let reason_width = (ui.available_width() - no_width - class_width - file_width - 3.0 * spacing)
+        .max(config::FLAG_REASON_MIN_WIDTH);
+
+    egui::Grid::new("flagged_table")
+        .num_columns(4)
+        .striped(true)
+        .show(ui, |ui| {
+            for title in ["No.", "Kelas", "Nama File", "Keterangan"] {
+                ui.label(
+                    egui::RichText::new(title)
+                        .font(header_font.clone())
+                        .color(rgb(config::UI_TEXT_PRIMARY_RGB)),
+                );
+            }
+            ui.end_row();
+
+            for row in rows {
+                ui.label(
+                    egui::RichText::new(row.no.to_string()).color(rgb(config::UI_TEXT_PRIMARY_RGB)),
+                );
+                ui.label(egui::RichText::new(&row.class).color(rgb(config::UI_TEXT_PRIMARY_RGB)));
+                ui.label(
+                    egui::RichText::new(&row.file)
+                        .monospace()
+                        .color(rgb(config::UI_TEXT_PRIMARY_RGB)),
+                );
+                ui.scope(|ui| {
+                    ui.set_max_width(reason_width);
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(&row.reason)
+                                .color(rgb(config::UI_WARNING_TEXT_RGB)),
+                        )
+                        .wrap(),
+                    );
+                });
+                ui.end_row();
+            }
         });
-    }
 }
 
 impl eframe::App for App {
@@ -1230,24 +1311,51 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_group_flagged_by_class() {
-        let items = vec![
+    fn sample_flagged() -> Vec<FlaggedItem> {
+        vec![
             flagged("X-8", "02_Budi.jpg", &["a"]),
-            flagged("X8", "03_Citra.jpg", &["b"]),
-            flagged("X-8", "01_andi.jpg", &["c"]),
-            flagged("x-1", "05_Eka.jpg", &["d"]),
-        ];
-        let groups = group_flagged_by_class(&items);
-        let classes: Vec<&str> = groups.iter().map(|(c, _)| c.as_str()).collect();
-        assert_eq!(classes, vec!["x-1", "X-8", "X8"]);
-        let files: Vec<&str> = groups
+            flagged("X8", "03_Citra.jpg", &["b", "c"]),
+            flagged("X-8", "01_andi.jpg", &["d"]),
+            flagged("x-1", "05_Eka.jpg", &["e"]),
+        ]
+    }
+
+    #[test]
+    fn test_flag_table_rows_sorted_by_class_then_file() {
+        let rows = flag_table_rows(&sample_flagged());
+        let order: Vec<(&str, &str)> = rows
             .iter()
-            .find(|(c, _)| c == "X-8")
-            .map(|(_, list)| list.iter().map(|i| i.file.as_str()).collect())
-            .unwrap_or_default();
-        assert_eq!(files, vec!["01_andi.jpg", "02_Budi.jpg"]);
-        assert!(group_flagged_by_class(&[]).is_empty());
+            .map(|r| (r.class.as_str(), r.file.as_str()))
+            .collect();
+        assert_eq!(
+            order,
+            vec![
+                ("x-1", "05_Eka.jpg"),
+                ("X-8", "01_andi.jpg"),
+                ("X-8", "02_Budi.jpg"),
+                ("X8", "03_Citra.jpg"),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_flag_table_rows_numbered_across_classes() {
+        let numbers: Vec<usize> = flag_table_rows(&sample_flagged())
+            .iter()
+            .map(|r| r.no)
+            .collect();
+        assert_eq!(numbers, vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_flag_table_rows_joins_reasons() {
+        let rows = flag_table_rows(&sample_flagged());
+        let reason = rows
+            .iter()
+            .find(|r| r.file == "03_Citra.jpg")
+            .map(|r| r.reason.as_str());
+        assert_eq!(reason, Some("b; c"));
+        assert!(flag_table_rows(&[]).is_empty());
     }
 
     #[test]

@@ -103,13 +103,25 @@ pub fn validate_hex_color(raw: &str) -> Result<[u8; 3], &'static str> {
     pipeline::parse_hex_color(raw).map_err(|_| HEX_COLOR_ERROR_MSG)
 }
 
-/// Returns the display label for a class name, matching `src/pipeline.rs` lines 277-281.
-pub fn class_display_label(name: &str) -> String {
-    if name.is_empty() {
-        "folder input".to_string()
-    } else {
-        name.to_string()
+/// Joins flag reasons into one line, separated by `; ` (same as `PERLU_DICEK.txt`).
+pub fn format_flag_reasons(reasons: &[String]) -> String {
+    reasons.join("; ")
+}
+
+/// Groups flagged photos by class. Classes and files are sorted by name, ignoring case.
+fn group_flagged_by_class(items: &[FlaggedItem]) -> Vec<(String, Vec<&FlaggedItem>)> {
+    let mut groups: Vec<(String, Vec<&FlaggedItem>)> = Vec::new();
+    for item in items {
+        match groups.iter_mut().find(|(class, _)| *class == item.class) {
+            Some((_, list)) => list.push(item),
+            None => groups.push((item.class.clone(), vec![item])),
+        }
     }
+    groups.sort_by_key(|(class, _)| (class.to_lowercase(), class.clone()));
+    for (_, list) in &mut groups {
+        list.sort_by_key(|item| (item.file.to_lowercase(), item.file.clone()));
+    }
+    groups
 }
 
 /// Formats the preview summary text after scanning the raw folder (e.g. "3 kelas, 105 foto").
@@ -204,7 +216,7 @@ fn compute_folder_preview(input: &Path) -> Result<FolderPreview, String> {
             files::collect_photos(&class_dir.path).map_err(|e| format!("{e:#}"))?;
         let pairs = files::pair_photos(&photos);
         let pairing_summary = files::pairing_summary(&pairs);
-        let label = class_display_label(&class_dir.name);
+        let label = class_dir.name.clone();
         let photo_count = photos.len();
         total_photos += photo_count;
 
@@ -788,21 +800,20 @@ impl App {
                     .inner_margin(egui::Margin::same(config::UI_BOX_PADDING))
                     .show(ui, |ui| {
                         ui.set_min_width(ui.available_width());
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            open_result_clicked = ui.button("Buka Folder Hasil").clicked();
-                            ui.with_layout(
-                                egui::Layout::left_to_right(egui::Align::Center)
-                                    .with_main_wrap(true),
-                                |ui| {
-                                    wrapped_label(
-                                        ui,
-                                        egui::RichText::new(format_finished_summary(summary))
-                                            .font(semibold_font(config::UI_BODY_TEXT_SIZE))
-                                            .color(rgb(text_rgb)),
-                                    );
-                                },
-                            );
-                        });
+                        egui::Sides::new().shrink_left().show(
+                            ui,
+                            |ui| {
+                                wrapped_label(
+                                    ui,
+                                    egui::RichText::new(format_finished_summary(summary))
+                                        .font(semibold_font(config::UI_BODY_TEXT_SIZE))
+                                        .color(rgb(text_rgb)),
+                                );
+                            },
+                            |ui| {
+                                open_result_clicked = ui.button("Buka Folder Hasil").clicked();
+                            },
+                        );
                     });
             }
         });
@@ -838,15 +849,13 @@ impl App {
                     ui.set_min_width(ui.available_width());
                     egui::ScrollArea::vertical()
                         .id_salt("flagged_scroll")
-                        .max_height(config::UI_FLAGGED_LIST_MAX_HEIGHT)
-                        .auto_shrink([false, true])
+                        .min_scrolled_height(config::FLAG_LIST_HEIGHT)
+                        .max_height(config::FLAG_LIST_HEIGHT)
+                        .auto_shrink([false, false])
                         .show(ui, |ui| {
-                            ui.spacing_mut().item_spacing.y = 0.0;
-                            for (index, item) in self.flagged_items.iter().enumerate() {
-                                if index > 0 {
-                                    ui.add(egui::Separator::default().spacing(0.0));
-                                }
-                                render_flagged_row(ui, index + 1, item);
+                            ui.set_min_width(ui.available_width());
+                            for (class, items) in group_flagged_by_class(&self.flagged_items) {
+                                render_flagged_class(ui, &class, &items);
                             }
                         });
                 });
@@ -1127,69 +1136,28 @@ fn path_box(ui: &mut egui::Ui, path: &str) {
         });
 }
 
-/// One row of the flagged list: number, file name with class, and reason chips.
-fn render_flagged_row(ui: &mut egui::Ui, number: usize, item: &FlaggedItem) {
-    egui::Frame::new()
-        .inner_margin(egui::Margin::symmetric(
-            config::UI_BOX_PADDING,
-            config::UI_BOX_PADDING,
-        ))
-        .show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
-            ui.horizontal_top(|ui| {
-                // Rows keep their natural height so chips line up with the file name.
-                ui.spacing_mut().interact_size.y = 0.0;
-                ui.spacing_mut().item_spacing = egui::Vec2::from(config::UI_ITEM_SPACING);
-
-                ui.allocate_ui_with_layout(
-                    egui::vec2(config::UI_FLAG_NUMBER_WIDTH, 0.0),
-                    egui::Layout::top_down(egui::Align::Min),
-                    |ui| {
-                        ui.set_min_width(config::UI_FLAG_NUMBER_WIDTH);
-                        ui.label(
-                            egui::RichText::new(format!("{number:02}"))
-                                .monospace()
-                                .color(rgb(config::UI_TEXT_SECONDARY_RGB)),
-                        );
-                    },
-                );
-
-                let available = ui.available_width();
-                let file_width = (available * config::UI_FLAG_FILE_COL_FRACTION)
-                    .max(config::UI_FLAG_FILE_COL_MIN_WIDTH)
-                    .min(available);
-                ui.allocate_ui_with_layout(
-                    egui::vec2(file_width, 0.0),
-                    egui::Layout::top_down(egui::Align::Min),
-                    |ui| {
-                        ui.set_min_width(file_width);
-                        ui.spacing_mut().item_spacing.y = 2.0;
-                        wrapped_label(
-                            ui,
-                            egui::RichText::new(&item.file)
-                                .monospace()
-                                .color(rgb(config::UI_TEXT_PRIMARY_RGB)),
-                        );
-                        wrapped_label(
-                            ui,
-                            egui::RichText::new(format!("[{}]", item.class))
-                                .monospace()
-                                .color(rgb(config::UI_TEXT_SECONDARY_RGB)),
-                        );
-                    },
-                );
-
-                ui.horizontal_wrapped(|ui| {
-                    for reason in &item.reasons {
-                        pill(
-                            ui,
-                            egui::RichText::new(reason).color(rgb(config::UI_WARNING_TEXT_RGB)),
-                            config::UI_WARNING_BG_RGB,
-                        );
-                    }
-                });
-            });
+/// One class block of the flagged list: small class title, then one line per photo
+/// (file name, then reasons; reasons wrap to the next line when long).
+fn render_flagged_class(ui: &mut egui::Ui, class: &str, items: &[&FlaggedItem]) {
+    ui.add_space(config::UI_SMALL_GAP);
+    ui.label(
+        egui::RichText::new(class)
+            .font(semibold_font(config::UI_BODY_TEXT_SIZE))
+            .color(rgb(config::UI_TEXT_SECONDARY_RGB)),
+    );
+    for item in items {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(
+                egui::RichText::new(&item.file)
+                    .monospace()
+                    .color(rgb(config::UI_TEXT_PRIMARY_RGB)),
+            );
+            ui.label(
+                egui::RichText::new(format_flag_reasons(&item.reasons))
+                    .color(rgb(config::UI_WARNING_TEXT_RGB)),
+            );
         });
+    }
 }
 
 impl eframe::App for App {
@@ -1251,16 +1219,48 @@ mod tests {
             format_class_pairing_line("1B", 20, "1&2, 3&4"),
             "Kelas 1B: 20 foto, pasangan 4R: 1&2, 3&4"
         );
-        assert_eq!(
-            format_class_pairing_line("folder input", 0, ""),
-            "Kelas folder input: 0 foto"
-        );
+        assert_eq!(format_class_pairing_line("raw", 0, ""), "Kelas raw: 0 foto");
+    }
+
+    fn flagged(class: &str, file: &str, reasons: &[&str]) -> FlaggedItem {
+        FlaggedItem {
+            class: class.to_string(),
+            file: file.to_string(),
+            reasons: reasons.iter().map(|r| r.to_string()).collect(),
+        }
     }
 
     #[test]
-    fn test_class_display_label() {
-        assert_eq!(class_display_label(""), "folder input");
-        assert_eq!(class_display_label("X-1"), "X-1");
+    fn test_group_flagged_by_class() {
+        let items = vec![
+            flagged("X-8", "02_Budi.jpg", &["a"]),
+            flagged("X8", "03_Citra.jpg", &["b"]),
+            flagged("X-8", "01_andi.jpg", &["c"]),
+            flagged("x-1", "05_Eka.jpg", &["d"]),
+        ];
+        let groups = group_flagged_by_class(&items);
+        let classes: Vec<&str> = groups.iter().map(|(c, _)| c.as_str()).collect();
+        assert_eq!(classes, vec!["x-1", "X-8", "X8"]);
+        let files: Vec<&str> = groups
+            .iter()
+            .find(|(c, _)| c == "X-8")
+            .map(|(_, list)| list.iter().map(|i| i.file.as_str()).collect())
+            .unwrap_or_default();
+        assert_eq!(files, vec!["01_andi.jpg", "02_Budi.jpg"]);
+        assert!(group_flagged_by_class(&[]).is_empty());
+    }
+
+    #[test]
+    fn test_format_flag_reasons() {
+        let reasons = vec![
+            "logo tidak terdeteksi".to_string(),
+            "kepala miring".to_string(),
+        ];
+        assert_eq!(
+            format_flag_reasons(&reasons),
+            "logo tidak terdeteksi; kepala miring"
+        );
+        assert_eq!(format_flag_reasons(&[]), "");
     }
 
     #[test]

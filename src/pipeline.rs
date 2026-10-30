@@ -84,7 +84,6 @@ struct FlagEntry {
 
 struct PlannedClass {
     name: String,
-    label: String,
     photos: Vec<Photo>,
     skipped: Vec<Skipped>,
     pairs: Vec<(Photo, Option<Photo>)>,
@@ -208,27 +207,44 @@ fn evaluate_photo_in_pair(
     }
 }
 
-/// Formats sorted `PERLU_DICEK.txt` content according to PRD 3.7.
-fn format_perlu_dicek(entries: &mut [FlagEntry]) -> String {
-    entries.sort_by(|a, b| {
-        a.class
+/// Formats the `PERLU_DICEK.txt` content of one class, sorted by file name (PRD 3.7).
+fn format_class_flags(entries: &[FlagEntry]) -> String {
+    let mut sorted: Vec<&FlagEntry> = entries.iter().collect();
+    sorted.sort_by(|a, b| {
+        a.file
             .to_lowercase()
-            .cmp(&b.class.to_lowercase())
-            .then_with(|| a.class.cmp(&b.class))
-            .then_with(|| a.file.to_lowercase().cmp(&b.file.to_lowercase()))
+            .cmp(&b.file.to_lowercase())
             .then_with(|| a.file.cmp(&b.file))
     });
 
     let mut content = String::from("Foto berikut sebaiknya dicek manual:\n");
-    for entry in entries.iter() {
-        content.push_str(&format!(
-            "[{}] {}: {}\n",
-            entry.class,
-            entry.file,
-            entry.reasons.join("; ")
-        ));
+    for entry in sorted {
+        content.push_str(&format!("{}: {}\n", entry.file, entry.reasons.join("; ")));
     }
     content
+}
+
+/// Output folder of the 4R sheets (and `PERLU_DICEK.txt`) of one class.
+fn class_out_4r_dir(out_4r_root: &Path, class_name: &str) -> PathBuf {
+    out_4r_root.join(format!("{class_name}_4R"))
+}
+
+/// Writes `PERLU_DICEK.txt` in `dir` for one class, or removes only that file if there is nothing to flag.
+fn write_class_flags(dir: &Path, entries: &[FlagEntry]) -> Result<()> {
+    let path = dir.join(config::FILE_PERLU_DICEK);
+    if entries.is_empty() {
+        if path.exists() {
+            fs::remove_file(&path).with_context(|| {
+                format!("Gagal menghapus daftar cek manual lama: {}", path.display())
+            })?;
+        }
+        return Ok(());
+    }
+
+    fs::create_dir_all(dir)
+        .with_context(|| format!("Gagal membuat folder kelas 4R: {}", dir.display()))?;
+    fs::write(&path, format_class_flags(entries))
+        .with_context(|| format!("Gagal menulis file daftar cek manual: {}", path.display()))
 }
 
 /// Runs the batch processing pipeline across all classes in `job.input`.
@@ -274,14 +290,8 @@ pub fn run(job: Job, events: Sender<Event>, cancel: Arc<AtomicBool>) -> Result<S
         let (photos, skipped) = files::collect_photos(&class_dir.path)?;
         let pairs = files::pair_photos(&photos);
         let summary = files::pairing_summary(&pairs);
-        let label = if class_dir.name.is_empty() {
-            "folder input".to_string()
-        } else {
-            class_dir.name.clone()
-        };
         planned_classes.push(PlannedClass {
             name: class_dir.name,
-            label,
             photos,
             skipped,
             pairs,
@@ -297,13 +307,13 @@ pub fn run(job: Job, events: Sender<Event>, cancel: Arc<AtomicBool>) -> Result<S
         for sk in &c.skipped {
             send_event(
                 &events,
-                Event::Log(format!("[{}] {}: {}", c.label, sk.filename, sk.reason)),
+                Event::Log(format!("[{}] {}: {}", c.name, sk.filename, sk.reason)),
             );
             let reasons = vec![sk.reason.clone()];
             send_event(
                 &events,
                 Event::Flagged {
-                    class: c.label.clone(),
+                    class: c.name.clone(),
                     file: sk.filename.clone(),
                     reasons: reasons.clone(),
                 },
@@ -312,7 +322,7 @@ pub fn run(job: Job, events: Sender<Event>, cancel: Arc<AtomicBool>) -> Result<S
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             guard.push(FlagEntry {
-                class: c.label.clone(),
+                class: c.name.clone(),
                 file: sk.filename.clone(),
                 reasons,
             });
@@ -328,11 +338,11 @@ pub fn run(job: Job, events: Sender<Event>, cancel: Arc<AtomicBool>) -> Result<S
                     summary: c.summary.clone(),
                 },
             );
-            let display_class = if c.name.is_empty() { "-" } else { &c.name };
             send_event(
                 &events,
                 Event::Log(format!(
-                    "Kelas {display_class}: {} foto, pasangan 4R: {}",
+                    "Kelas {}: {} foto, pasangan 4R: {}",
+                    c.name,
                     c.photos.len(),
                     c.summary
                 )),
@@ -363,24 +373,19 @@ pub fn run(job: Job, events: Sender<Event>, cancel: Arc<AtomicBool>) -> Result<S
     let sheets_done = AtomicUsize::new(0);
     let photos_3x4_done = AtomicUsize::new(0);
 
+    // Classes reached before cancellation; only these get their PERLU_DICEK.txt rewritten.
+    let mut started_classes: Vec<&PlannedClass> = Vec::new();
     for c in &planned_classes {
-        if c.pairs.is_empty() {
-            continue;
-        }
         if cancel.load(Ordering::Relaxed) {
             break;
         }
+        started_classes.push(c);
+        if c.pairs.is_empty() {
+            continue;
+        }
 
-        let out_4r_dir = if c.name.is_empty() {
-            out_4r_root.clone()
-        } else {
-            out_4r_root.join(format!("{}_4R", c.name))
-        };
-        let out_3x4_dir = if c.name.is_empty() {
-            out_3x4_root.clone()
-        } else {
-            out_3x4_root.join(format!("{}_3x4", c.name))
-        };
+        let out_4r_dir = class_out_4r_dir(&out_4r_root, &c.name);
+        let out_3x4_dir = out_3x4_root.join(format!("{}_3x4", c.name));
 
         fs::create_dir_all(&out_4r_dir)
             .with_context(|| format!("Gagal membuat folder kelas 4R: {}", out_4r_dir.display()))?;
@@ -415,10 +420,10 @@ pub fn run(job: Job, events: Sender<Event>, cancel: Arc<AtomicBool>) -> Result<S
                     )),
                 );
 
-                let slot1 = evaluate_photo_in_pair(p1, &c.label, &out_3x4_dir, &pair_ctx);
+                let slot1 = evaluate_photo_in_pair(p1, &c.name, &out_3x4_dir, &pair_ctx);
 
                 let slot2 = match p2_opt.as_ref() {
-                    Some(p2) => evaluate_photo_in_pair(p2, &c.label, &out_3x4_dir, &pair_ctx),
+                    Some(p2) => evaluate_photo_in_pair(p2, &c.name, &out_3x4_dir, &pair_ctx),
                     None => None,
                 };
 
@@ -458,31 +463,30 @@ pub fn run(job: Job, events: Sender<Event>, cancel: Arc<AtomicBool>) -> Result<S
         });
     }
 
-    let mut flagged_entries = flagged_mutex
+    let flagged_entries = flagged_mutex
         .into_inner()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let perlu_dicek_path = out_4r_root.join(config::FILE_PERLU_DICEK);
+
+    // One PERLU_DICEK.txt per started class; classes not reached are left untouched.
+    for c in &started_classes {
+        let class_entries: Vec<FlagEntry> = flagged_entries
+            .iter()
+            .filter(|e| e.class == c.name)
+            .cloned()
+            .collect();
+        write_class_flags(&class_out_4r_dir(&out_4r_root, &c.name), &class_entries)?;
+    }
 
     if !flagged_entries.is_empty() {
-        let content = format_perlu_dicek(&mut flagged_entries);
-        fs::write(&perlu_dicek_path, content).with_context(|| {
-            format!(
-                "Gagal menulis file daftar cek manual: {}",
-                perlu_dicek_path.display()
-            )
-        })?;
         send_event(
             &events,
             Event::Log(format!(
-                "Selesai. {} foto perlu dicek, daftarnya ada di {}",
+                "Selesai. {} foto perlu dicek, daftarnya ada di {} di folder 4R tiap kelas",
                 flagged_entries.len(),
                 config::FILE_PERLU_DICEK
             )),
         );
     } else {
-        if perlu_dicek_path.exists() {
-            let _ = fs::remove_file(&perlu_dicek_path);
-        }
         send_event(
             &events,
             Event::Log("Proses otomatisasi pas foto selesai!".to_string()),
@@ -617,8 +621,7 @@ fn format_cli_event(event: &Event) -> String {
             pairs,
             summary,
         } => {
-            let disp = if class.is_empty() { "-" } else { class };
-            format!("[RENCANA] Kelas {disp}: {photos} foto, {pairs} lembar 4R ({summary})")
+            format!("[RENCANA] Kelas {class}: {photos} foto, {pairs} lembar 4R ({summary})")
         }
         Event::SheetDone { done, total } => {
             format!("[PROGRES] Lembar 4R selesai: {done}/{total}")
@@ -628,12 +631,7 @@ fn format_cli_event(event: &Event) -> String {
             file,
             reasons,
         } => {
-            let disp = if class.is_empty() {
-                "folder input"
-            } else {
-                class
-            };
-            format!("[PERLU DICEK] [{disp}] {file}: {}", reasons.join("; "))
+            format!("[PERLU DICEK] [{class}] {file}: {}", reasons.join("; "))
         }
         Event::Log(msg) => format!("[LOG] {msg}"),
         Event::Finished(summary) => format!(
@@ -761,33 +759,79 @@ mod tests {
     }
 
     #[test]
-    fn test_format_perlu_dicek_sorting_and_header() {
-        let mut entries = vec![
-            FlagEntry {
-                class: "XII-B".to_string(),
-                file: "02_Budi.jpg".to_string(),
-                reasons: vec!["wajah tidak terdeteksi".to_string()],
-            },
-            FlagEntry {
-                class: "XII-A".to_string(),
-                file: "03_Citra.jpg".to_string(),
-                reasons: vec!["zoom terlalu dekat".to_string(), "logo mepet".to_string()],
-            },
-            FlagEntry {
-                class: "XII-A".to_string(),
-                file: "01_Andi.jpg".to_string(),
-                reasons: vec!["latar bukan merah".to_string()],
-            },
+    fn test_format_class_flags_sorting_and_header() {
+        let entries = vec![
+            flag(
+                "XII-A",
+                "03_Citra.jpg",
+                &["zoom terlalu dekat", "logo mepet"],
+            ),
+            flag("XII-A", "01_Andi.jpg", &["latar bukan merah"]),
+            flag("XII-A", "02_budi.jpg", &["wajah tidak terdeteksi"]),
         ];
 
-        let formatted = format_perlu_dicek(&mut entries);
         let expected = "\
 Foto berikut sebaiknya dicek manual:
-[XII-A] 01_Andi.jpg: latar bukan merah
-[XII-A] 03_Citra.jpg: zoom terlalu dekat; logo mepet
-[XII-B] 02_Budi.jpg: wajah tidak terdeteksi
+01_Andi.jpg: latar bukan merah
+02_budi.jpg: wajah tidak terdeteksi
+03_Citra.jpg: zoom terlalu dekat; logo mepet
 ";
-        assert_eq!(formatted, expected);
+        assert_eq!(format_class_flags(&entries), expected);
+    }
+
+    fn flag(class: &str, file: &str, reasons: &[&str]) -> FlagEntry {
+        FlagEntry {
+            class: class.to_string(),
+            file: file.to_string(),
+            reasons: reasons.iter().map(|r| r.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn test_write_class_flags_two_classes_same_output() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path().join(config::DIR_OUTPUT_4R);
+        let dir_a = class_out_4r_dir(&root, "X8");
+        let dir_b = class_out_4r_dir(&root, "X-8");
+        assert_eq!(dir_a, root.join("X8_4R"));
+
+        // folder is created when it does not exist yet
+        write_class_flags(&dir_a, &[flag("X8", "01_A.jpg", &["a"])]).expect("write X8");
+        write_class_flags(&dir_b, &[flag("X-8", "02_B.jpg", &["b1", "b2"])]).expect("write X-8");
+
+        let text_a = fs::read_to_string(dir_a.join(config::FILE_PERLU_DICEK)).expect("read X8");
+        let text_b = fs::read_to_string(dir_b.join(config::FILE_PERLU_DICEK)).expect("read X-8");
+        assert_eq!(
+            text_a,
+            "Foto berikut sebaiknya dicek manual:\n01_A.jpg: a\n"
+        );
+        assert_eq!(
+            text_b,
+            "Foto berikut sebaiknya dicek manual:\n02_B.jpg: b1; b2\n"
+        );
+    }
+
+    #[test]
+    fn test_write_class_flags_empty_removes_only_own_file() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path().join(config::DIR_OUTPUT_4R);
+        let dir_a = class_out_4r_dir(&root, "X8");
+        let dir_b = class_out_4r_dir(&root, "X-8");
+        write_class_flags(&dir_a, &[flag("X8", "01_A.jpg", &["a"])]).expect("write X8");
+        write_class_flags(&dir_b, &[flag("X-8", "02_B.jpg", &["b"])]).expect("write X-8");
+        let other_sheet = dir_a.join("X8_Absen_01_4R.jpg");
+        fs::write(&other_sheet, b"x").expect("write sheet");
+
+        write_class_flags(&dir_a, &[]).expect("clear X8");
+
+        assert!(!dir_a.join(config::FILE_PERLU_DICEK).exists());
+        assert!(other_sheet.exists(), "file lain di folder kelas harus utuh");
+        assert!(dir_b.join(config::FILE_PERLU_DICEK).is_file());
+
+        // no flags and no folder: nothing is created
+        let dir_c = class_out_4r_dir(&root, "X9");
+        write_class_flags(&dir_c, &[]).expect("clear X9");
+        assert!(!dir_c.exists());
     }
 
     #[test]
@@ -895,20 +939,14 @@ Foto berikut sebaiknya dicek manual:
         }
         assert_eq!(count_4r_files, expected_sheets);
 
-        // Verify PERLU_DICEK.txt uses [raw] prefix if flagged entries exist
-        let perlu_dicek_path = temp_out
-            .path()
-            .join(config::DIR_OUTPUT_4R)
-            .join(config::FILE_PERLU_DICEK);
+        // PERLU_DICEK.txt lives in the class 4R folder and has no class prefix
+        let perlu_dicek_path = raw_4r_dir.join(config::FILE_PERLU_DICEK);
         if perlu_dicek_path.is_file() {
             let content = std::fs::read_to_string(&perlu_dicek_path).expect("read PERLU_DICEK.txt");
+            assert!(content.starts_with("Foto berikut sebaiknya dicek manual:\n"));
             assert!(
-                !content.contains("[folder input]"),
-                "PERLU_DICEK.txt tidak boleh memuat '[folder input]'"
-            );
-            assert!(
-                content.contains("[raw]"),
-                "PERLU_DICEK.txt harus menggunakan prefix '[raw]'"
+                !content.contains("[raw]"),
+                "PERLU_DICEK.txt tidak boleh memuat prefiks kelas"
             );
         }
     }

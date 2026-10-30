@@ -234,16 +234,10 @@ pub const UI_PROGRESS_HEIGHT: f32 = 8.0;
 pub const UI_CHIP_PADDING: [i8; 2] = [8, 3];
 /// Corner radius of status pills and reason chips in pixels.
 pub const UI_PILL_RADIUS: u8 = 12;
-/// Width of the number column in the flagged photo list.
-pub const UI_FLAG_NUMBER_WIDTH: f32 = 32.0;
-/// Width of the file column in the flagged photo list, as a fraction of the row.
-pub const UI_FLAG_FILE_COL_FRACTION: f32 = 0.4;
-/// Minimum width of the file column in the flagged photo list.
-pub const UI_FLAG_FILE_COL_MIN_WIDTH: f32 = 180.0;
 /// Maximum height of the pairing plan list before it scrolls.
 pub const UI_PREVIEW_LIST_MAX_HEIGHT: f32 = 160.0;
-/// Maximum height of the flagged photo list before it scrolls.
-pub const UI_FLAGGED_LIST_MAX_HEIGHT: f32 = 220.0;
+/// Fixed height of the flagged photo list; it scrolls inside this height.
+pub const FLAG_LIST_HEIGHT: f32 = 360.0;
 /// Maximum height of the process log before it scrolls.
 pub const UI_LOG_MAX_HEIGHT: f32 = 160.0;
 

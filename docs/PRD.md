@@ -1,6 +1,6 @@
 # PRD — Pas Foto Otomatis (Rust) v1.0
 
-**Status:** Aktif.
+**Status:** Aktif. Diperbarui 31 Oktober 2026 (hasil G1.6, G1.7, dan G1.8, serta tugas G1.9 sampai G1.11).
 **Acuan perilaku:** `reference/app.py` (versi Python yang sudah dipakai produksi). Hanya dibaca.
 **Aturan agent:** `AGENTS.md`.
 **Branch kerja:** `main` (satu commit per tugas, di-commit developer).
@@ -9,7 +9,7 @@
 
 ## 1. Tujuan
 
-Menulis ulang aplikasi pas foto dari Python ke **Rust murni** menjadi satu `.exe` Windows yang cepat dibuka, ringan, dan mudah dipakai oleh orang awam (operator studio). **Hasil foto harus sama** dengan versi Python yang sekarang sudah dianggap benar.
+Menulis ulang aplikasi pas foto dari Python ke **Rust murni** menjadi satu `.exe` Windows yang cepat dibuka, ringan, dan mudah dipakai oleh orang awam (operator studio). **Hasil foto dibandingkan dengan versi Python** yang sudah dipakai produksi. Selisih framing yang diterima developer di G1.8 dicatat di bagian 2 (K5) dan di G1.8.
 
 **Alur pengguna:**
 1. Pilih folder foto mentah. Setiap subfolder adalah satu kelas, contoh `1B/`, `X-1/`.
@@ -32,7 +32,7 @@ Menulis ulang aplikasi pas foto dari Python ke **Rust murni** menjadi satu `.exe
 | K2 | Deteksi wajah memakai **YuNet** (`face_detection_yunet_2023mar.onnx`, lisensi MIT), menggantikan MediaPipe. |
 | K3 | Ganti warna latar memakai **chroma key** (latar studio selalu kain merah), menggantikan rembg/u2net. |
 | K4 | Aset ada di **folder di samping .exe**: `Template/` dan `models/`. Tidak ditanam di .exe. |
-| K5 | Perilaku crop, penomoran, dan susunan 4R **setara** dengan `reference/app.py`. Perbedaan hanya boleh karena detektor wajah berbeda (toleransi di G1.8). |
+| K5 | Perilaku crop, penomoran, dan susunan 4R **setara** dengan `reference/app.py`. Perbedaan hanya boleh karena detektor wajah berbeda (toleransi di G1.8). Hasil G1.8 diterima developer dengan selisih, lihat G1.8. |
 | K6 | Agent boleh menjalankan `cargo check/test/clippy/fmt/build`. Developer yang menjalankan GUI dan `git commit`. |
 | K7 | Foto siswa untuk uji ada di `testdata/` dan **tidak di-commit** (privasi, foto anak di bawah umur). |
 
@@ -56,7 +56,7 @@ PasFoto/
 ### 3.2 Input dan penomoran (port `kumpulkan_foto` dari reference)
 - **Folder input:**
   - jika punya subfolder, setiap subfolder adalah satu kelas (nama kelas = nama folder), diurutkan berdasarkan nama tanpa memperhatikan huruf besar/kecil;
-  - jika tidak punya subfolder, folder itu sendiri diproses dengan nama kelas kosong.
+  - jika tidak punya subfolder, folder itu sendiri diproses dan namanya dipakai sebagai nama kelas (keputusan G1.9).
 - **File foto:** ekstensi `.jpg`, `.jpeg`, `.png` (huruf besar/kecil apa saja). Abaikan nama yang diawali `.` atau `~`.
 - **Dilewati dan dicatat:**
   - nama yang berakhiran `_3x4` atau `_4R` (huruf besar/kecil apa saja), dengan alasan `dilewati: ini file hasil olahan, bukan foto mentah`;
@@ -147,7 +147,7 @@ Sudah diuji di prototipe: telinga, dasi, logo, hijab putih, dan hijab hitam teta
   - potong foto ke rasio 335:445 dengan posisi tengah horizontal dan rata atas (yang terbuang bagian bawah);
   - resize Lanczos3 ke 335x445.
 - **Urutan tempel:** foto → `overlay.png` (alpha) → `Templates.png` (alpha) → teks.
-- **Teks** (hanya jika nama kelas tidak kosong):
+- **Teks** (selalu digambar; nama kelas diambil dari nama folder input, lihat 3.2):
   - `"{kelas} / {absen}"` di (1533, 200) untuk siswa pertama dan (1533, 678) untuk siswa kedua;
   - warna (139,0,0);
   - posisi (x,y) = kiri atas kotak teks, seperti `ImageDraw.text` anchor `la`;
@@ -155,30 +155,38 @@ Sudah diuji di prototipe: telinga, dasi, logo, hijab putih, dan hijab hitam teta
 - **Slot siswa kedua** kosong jika jumlah ganjil, atau jika foto gagal diproses.
 
 ### 3.7 Output
-- **Foto 3x4:** `<folder hasil>/Output_3x4/<kelas>_3x4/<nama file tanpa ekstensi>_3x4.jpg`. Kelas kosong: langsung di `Output_3x4/`. Ukuran asli hasil crop, tidak di-resize.
-- **Lembar 4R:** `<folder hasil>/Output_4R/<kelas>_4R/<kelas>_Absen_<a1>-<a2>_4R.jpg`, atau `<kelas>_Absen_<a1>_4R.jpg` jika sendiri. Kelas kosong: langsung di `Output_4R/`.
+- **Foto 3x4:** `<folder hasil>/Output_3x4/<kelas>_3x4/<nama file tanpa ekstensi>_3x4.jpg`. Nama kelas = nama folder input (contoh input `X8` menghasilkan `X8_3x4`, input `X-8` menghasilkan `X-8_3x4`). Ukuran asli hasil crop, tidak di-resize.
+- **Lembar 4R:** `<folder hasil>/Output_4R/<kelas>_4R/<kelas>_Absen_<a1>-<a2>_4R.jpg`, atau `<kelas>_Absen_<a1>_4R.jpg` jika sendiri.
 - **Format semua JPEG:** kualitas 100 dan DPI 300 (`JpegEncoder::new_with_quality` + `set_pixel_density(PixelDensity::dpi(300))`).
 - **File baca:** orientasi EXIF diterapkan (`ImageDecoder::orientation()` + `DynamicImage::apply_orientation`). Foto PNG dengan alpha diubah ke RGB.
-- **`Output_4R/PERLU_DICEK.txt`:**
-  - berisi satu baris per foto: `[kelas] nama_file: alasan1; alasan2`, diurutkan per kelas lalu nama file;
+- **`Output_4R/<kelas>_4R/PERLU_DICEK.txt`** (satu file per kelas, G1.12):
+  - berisi satu baris per foto: `nama_file: alasan1; alasan2`, diurutkan per nama file. Tanpa prefiks kelas, karena kelas sudah ada di nama folder;
   - baris pertama: `Foto berikut sebaiknya dicek manual:`;
-  - jika tidak ada yang perlu dicek, file lama dihapus.
+  - jika kelas itu tidak punya foto yang perlu dicek, hanya file milik kelas itu yang dihapus. File kelas lain tidak disentuh.
 - **File yang sudah ada ditimpa.**
+- **Terkonfirmasi developer (31 Oktober 2026):** folder kelas di dalam `Output_3x4/` dan `Output_4R/` mengikuti nama folder input, dengan akhiran `_3x4` dan `_4R`. Uji: input `X8` menghasilkan `X8_3x4` dan `X8_4R`; input `X-8` menghasilkan `X-8_3x4` dan `X-8_4R`.
 
 ### 3.8 Tampilan (egui), bahasa Indonesia awam
 - **Judul jendela:** `Pas Foto Otomatis`. Ukuran awal 900x700, minimum 760x600.
+- **Gaya:** tema terang, tata letak berkartu, warna aksen `#BE1220`, tanpa ikon dan emoji (G1.10).
 - **Bagian "Folder"**
   - `Folder foto mentah` dengan tombol `Pilih…`. Setelah dipilih, tampilkan ringkasan, contoh `3 kelas, 105 foto`, dan daftar rencana pasangan per kelas yang bisa dibuka-tutup.
   - `Folder hasil` dengan tombol `Pilih…` dan `Buka Folder`. Default: folder tempat aplikasi berada.
 - **Bagian "Pengaturan"**
-  - Centang `Ganti warna latar`, dengan pemilih warna yang aktif hanya jika dicentang.
+  - Centang `Ganti warna latar`, dengan pemilih warna yang aktif hanya jika dicentang. Warna juga bisa diisi lewat kolom hex `#RRGGBB` (misalnya `#BE1220`). Input yang salah ditandai dengan pesan `Gunakan format #RRGGBB, misalnya #BE1220` (G1.11).
   - Bagian lipat `Pengaturan lanjutan`:
     - slider `Posisi mata` 20–40% (default 28%);
     - slider `Ruang di atas kepala` 2–15% (default 7%);
     - tombol `Kembalikan ke awal`.
 - **Tombol utama:** `Mulai Proses`. Saat berjalan berubah menjadi `Batalkan`.
 - **Status:** progress bar, teks `12 dari 18 lembar`, dan kalimat status singkat.
-- **Selesai:** ringkasan, contoh `Selesai: 18 lembar 4R dan 35 foto 3x4. 2 foto perlu dicek.`, lalu daftar foto perlu dicek beserta alasannya, dan tombol `Buka Folder Hasil`.
+- **Selesai:** ringkasan, contoh `Selesai: 18 lembar 4R dan 35 foto 3x4. 2 foto perlu dicek.`, dan tombol `Buka Folder Hasil` dalam satu baris, tanpa ruang kosong.
+- **Daftar foto perlu dicek:** tabel dengan kolom **No.**, **Kelas**, **Nama File**, dan **Keterangan**.
+  - No. dihitung dari 1 untuk seluruh daftar.
+  - Baris diurutkan per kelas, lalu per nama file.
+  - Nama file memakai font monospace. Keterangan boleh turun baris jika panjang.
+  - Tabel memakai tinggi tetap (`FLAG_LIST_HEIGHT`) dan scroll di dalam tabel.
+  - Tabel memakai `egui::Grid` (tanpa dependency baru).
 - **Bagian lipat "Catatan proses"** berisi log (tertutup secara default).
 - Folder terakhir dan pengaturan **diingat** antar sesi (persistence eframe).
 - **Dilarang:** teks teknis atau promosi (ONNX, tract, engine, offline, AI, versi build), emoji, dan jendela konsol di build release.
@@ -201,6 +209,8 @@ Sudah diuji di prototipe: telinga, dasi, logo, hijab putih, dan hijab hitam teta
 | `anyhow` | Error |
 | `serde` (fitur `derive`) | Simpan pengaturan |
 | `tempfile` (dev) | Test folder sementara |
+
+Catatan (G1.8): `Cargo.toml` memakai `default-run = "PasFoto"` karena ada dua binary, yaitu `PasFoto` dan `parity`. Ini deviasi kecil dari rencana awal.
 
 ### 4.2 Struktur kode
 ```
@@ -233,7 +243,7 @@ src/bin/parity.rs  // developer tool, G1.8
 ```
 PasFoto.exe --cli --input <folder> --output <folder> [--bg <#RRGGBB>]
 ```
-Menjalankan pipeline yang sama tanpa GUI. Log ditulis ke stdout. Exit code 0 jika selesai, walaupun ada foto yang perlu dicek.
+Menjalankan pipeline yang sama tanpa GUI. Log ditulis ke `<folder hasil>/log_cli.txt`, karena build release tidak punya jendela konsol (G1.6). Exit code 0 jika selesai, walaupun ada foto yang perlu dicek.
 
 ---
 
@@ -255,9 +265,10 @@ Menjalankan pipeline yang sama tanpa GUI. Log ditulis ke stdout. Exit code 0 jik
 ### GERBANG 1: Implementasi
 
 **Kriteria lolos G1:**
-- Semua tugas G1.0 sampai G1.8 selesai.
+- Semua tugas G1.0 sampai G1.11 selesai.
 - `cargo test` lulus dan `cargo clippy --all-targets -- -D warnings` bersih.
-- Uji kesetaraan G1.8 lolos.
+- Uji kesetaraan G1.8 dicatat dengan keputusan developer (lihat G1.8).
+- **Status Gerbang 1: LOLOS** (dikonfirmasi developer, 31 Oktober 2026). Gerbang 2 (G2.0) boleh dimulai.
 - Developer sudah memproses satu kelas nyata lewat GUI dan hasilnya diterima.
 
 #### G1.0 — Kerangka Proyek
@@ -402,6 +413,9 @@ Menjalankan pipeline yang sama tanpa GUI. Log ditulis ke stdout. Exit code 0 jik
   - buka `target/uji/Output_4R`, bandingkan dengan hasil Python untuk foto yang sama;
   - jalankan sekali lagi dengan `--bg #1F4FBF`, lalu cek tepi rambut dan hijab.
 - **Pesan commit:** `feat(pipeline): add parallel batch pipeline and developer CLI`
+- **Status:** selesai, sudah di-commit developer.
+- **Hasil CLI (developer):** 3 kelas, 104 foto 3x4, 53 lembar 4R, 64 foto ditandai perlu dicek, durasi 58,91 detik (`log_cli.txt`).
+- **Terbuka:** jumlah 64 flag belum dibandingkan dengan jumlah flag Python untuk kelas yang sama. Uji `--bg #1F4FBF` belum dikonfirmasi developer.
 
 #### G1.7 — Tampilan (egui)
 - **Rekomendasi Model:** Gemini Argon 4 (Effort: Medium)
@@ -425,6 +439,8 @@ Menjalankan pipeline yang sama tanpa GUI. Log ditulis ke stdout. Exit code 0 jik
   3. Tutup dan buka lagi: folder dan pengaturan masih diingat.
   4. Ganti nama folder `Template` sementara: muncul pesan ramah dan tombol nonaktif.
 - **Pesan commit:** `feat(ui): add egui interface with progress, preview, and settings`
+- **Status:** selesai.
+- **Hasil langkah 4 (developer):** dengan folder bernama `Template_bak`, aplikasi tidak mendeteksi aset. Nama folder harus persis `Template`.
 
 #### G1.8 — Uji Kesetaraan dengan Versi Python
 - **Rekomendasi Model:** Gemini Flash 3.8 (Effort: Medium)
@@ -445,6 +461,24 @@ Menjalankan pipeline yang sama tanpa GUI. Log ditulis ke stdout. Exit code 0 jik
   2. Jalankan `parity`.
   3. Target: ≥ 90% foto `OK`. Setiap `BEDA` dicek mata, lalu dilaporkan ke reviewer jika hasil Rust lebih buruk.
 - **Pesan commit:** `test(parity): add tool to compare 3x4 framing with python reference`
+- **Status:** dicatat dengan keputusan developer.
+- **Hasil (104 pasangan):** OK 35 (33,7%), BEDA 69, TIDAK TERDETEKSI 0. Target ≥ 90% OK **tidak tercapai**.
+- **Contoh BEDA:** `04_Alifsya Putri Vyalin`: mata 2,24%, tengah 3,60%, skala 11,61%. Menurut developer, hasil Rust lebih berada di tengah daripada Python, sehingga selisih ini diterima.
+- **Keputusan developer:** G1.8 **diloloskan** dengan catatan ini.
+
+#### G1.9 — Struktur Output dan Nama Kelas
+- **Status:** selesai (`e625270`).
+- **Hasil:** label 4R tampil karena nama kelas diambil dari nama folder input. Log rencana dan log flag memakai nama yang sama.
+- **Struktur folder output:** mengikuti permintaan developer. Lihat 3.7.
+
+#### G1.10 — Tampilan Berkartu
+- **Status:** selesai (`005095d`).
+- **Hasil:** tata letak berkartu, tema terang, warna aksen `#BE1220`, tanpa ikon dan emoji. Judul kartu `Folder` (3.8). Tidak ada fitur baru.
+- **Catatan developer:** pemilih warna juga harus bisa diisi hex. Ditangani di G1.11.
+
+#### G1.11 — Input Hex Warna
+- **Status:** selesai (`739c82f`).
+- **Hasil:** kolom hex `#RRGGBB` di samping pemilih warna, divalidasi saat diketik dan saat `Mulai Proses`. Tombol utama saat berjalan tetap `Batalkan`.
 
 ---
 
